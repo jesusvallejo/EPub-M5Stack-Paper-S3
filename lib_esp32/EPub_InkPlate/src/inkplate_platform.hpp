@@ -8,10 +8,12 @@
 
 #include "global.hpp"
 #include "non_copyable.hpp"
+#include "battery.hpp"
 
 #if defined(BOARD_TYPE_PAPER_S3)
 
 #include "driver/gpio.h"
+extern Battery battery;
 
 class InkPlatePlatform : NonCopyable
 {

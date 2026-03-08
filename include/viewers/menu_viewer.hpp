@@ -33,15 +33,15 @@ class MenuViewer
   private:
     static constexpr char const * TAG = "MenuViewer";
 
-    static const int16_t ICON_SIZE           = 15;
-    static const int16_t CAPTION_SIZE        = 12;
+    static const int16_t ICON_SIZE           = 18;
+    static const int16_t CAPTION_SIZE        = 10;
 
     #if INKPLATE_6PLUS
       static const int16_t SPACE_BETWEEN_ICONS = 70;
       static const int16_t ICONS_LEFT_OFFSET   = 20;
     #else
-      static const int16_t SPACE_BETWEEN_ICONS = 50;
-      static const int16_t ICONS_LEFT_OFFSET   = 10;
+      static const int16_t SPACE_BETWEEN_ICONS = 70;
+      static const int16_t ICONS_LEFT_OFFSET   = 20;
     #endif
 
     uint8_t  current_entry_index;
