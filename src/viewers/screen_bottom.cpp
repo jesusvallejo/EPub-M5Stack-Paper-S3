@@ -64,7 +64,8 @@ ScreenBottom::show(int16_t page_nbr, int16_t page_count)
 
   // Heap info and battery viewer rely on Inkplate-specific drivers, which
   // are not available on Paper S3.
-  #if EPUB_INKPLATE_BUILD && !BOARD_TYPE_PAPER_S3
+  #if EPUB_INKPLATE_BUILD 
+    #if !BOARD_TYPE_PAPER_S3
     int8_t show_heap;
     config.get(Config::Ident::SHOW_HEAP, &show_heap);
 
@@ -81,7 +82,7 @@ ScreenBottom::show(int16_t page_nbr, int16_t page_count)
                           Screen::get_height() + font->get_descender_height(FONT_SIZE) - 2), 
                       fmt);
     }
-
+    #endif
     BatteryViewer::show();
   #endif
 
@@ -97,17 +98,17 @@ ScreenBottom::show(int16_t page_nbr, int16_t page_count)
       localtime_r(&epoch, &time);
 
       ostr.str(std::string());
-      ostr << dw[(int8_t) time.tm_wday] << " - "
-           << std::setfill('0') 
-           << std::setw(2) << +(time.tm_mon + 1)  << '/' 
-           << std::setw(2) << +time.tm_mday << ' '
+      //ostr << dw[(int8_t) time.tm_wday] << " - "
+      ostr << std::setfill('0') 
+           << std::setw(2) << +time.tm_mday << '/' 
+           << std::setw(2) << +(time.tm_mon + 1) << ' '
            << std::setw(2) << +time.tm_hour << ':' 
            << std::setw(2) << +time.tm_min;
 
       fmt.align = CSS::Align::RIGHT;
       page.put_str_at(ostr.str(),
                       Pos(Page::HORIZONTAL_CENTER, 
-                          Screen::get_height() + font->get_descender_height(FONT_SIZE) - 2), 
+                          Screen::get_height() + font->get_descender_height(FONT_SIZE) - 4), 
                       fmt);
     }
   #endif

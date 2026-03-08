@@ -14,11 +14,13 @@ class MenuViewer
 
     enum class Icon { RETURN,      CLR_HISTORY, REFRESH,   BOOK,   BOOK_LIST, MAIN_PARAMS, 
                       FONT_PARAMS, POWEROFF,    WIFI,      INFO,   TOC,       DEBUG, 
-                      DELETE,      CLOCK,       NTP_CLOCK, CALIB,  PREV_MENU, NEXT_MENU, REVERT, END_MENU };
-    char icon_char[19] = { 
+                      DELETE,      CLOCK,       NTP_CLOCK, CALIB,  PREV_MENU, NEXT_MENU, REVERT, 
+                      END_MENU,    USB };
+    char icon_char[20] = { 
                       '@',         'T',         'R',       'E',    'F',       'C', 
                       'A',         'Z',         'S',       'I',    'L',       'H', 
-                      'K',         'N',         'Y',       'M',    'O',       'P',   'U' };
+                      'K',         'N',         'Y',       'M',    'O',       'P',   
+                      'U',         'V' };
     struct MenuEntry {
       Icon icon;
       const char * caption;
@@ -33,15 +35,15 @@ class MenuViewer
   private:
     static constexpr char const * TAG = "MenuViewer";
 
-    static const int16_t ICON_SIZE           = 15;
-    static const int16_t CAPTION_SIZE        = 12;
+    static const int16_t ICON_SIZE           = 18;
+    static const int16_t CAPTION_SIZE        = 10;
 
     #if INKPLATE_6PLUS
       static const int16_t SPACE_BETWEEN_ICONS = 70;
       static const int16_t ICONS_LEFT_OFFSET   = 20;
     #else
-      static const int16_t SPACE_BETWEEN_ICONS = 50;
-      static const int16_t ICONS_LEFT_OFFSET   = 10;
+      static const int16_t SPACE_BETWEEN_ICONS = 70;
+      static const int16_t ICONS_LEFT_OFFSET   = 20;
     #endif
 
     uint8_t  current_entry_index;

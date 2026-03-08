@@ -32,12 +32,12 @@
 # ---
 
 version = 1
-wifi_ssid = "your_pwd_ssid"
-wifi_pwd = "your_wifi_pwd"
+wifi_ssid = "keepAway"
+wifi_pwd = "cometa1997"
 http_port = 80
 battery = 2
 timeout = 5
-font_size = 12
+font_size = 10
 default_font = 0
 use_fonts_in_books = 1
 show_images = 1
@@ -49,4 +49,4 @@ front_light = 15
 dir_view = 1
 show_rtc = 0
 ntp_server = "pool.ntp.org"
-tz = "EST5EDT,M3.2.0,M11.1.0"
+tz = "CET-1CEST,M3.5.0,M10.5.0/3"

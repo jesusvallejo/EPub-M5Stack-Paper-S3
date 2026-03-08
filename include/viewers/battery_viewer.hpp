@@ -6,13 +6,15 @@
 #include "global.hpp"
 
 // Battery viewer is only available on Inkplate boards, not on Paper S3.
-#if EPUB_INKPLATE_BUILD && !BOARD_TYPE_PAPER_S3
+#if EPUB_INKPLATE_BUILD //&& !BOARD_TYPE_PAPER_S3
   namespace BatteryViewer {
 
     #if __BATTERY_VIEWER__
       void show();
+      void update();
     #else
       extern void show();
+      extern void update();
     #endif
 
   }
