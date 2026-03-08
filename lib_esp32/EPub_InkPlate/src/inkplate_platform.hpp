@@ -9,6 +9,7 @@
 #include "global.hpp"
 #include "non_copyable.hpp"
 #include "battery.hpp"
+#include "driver/sdmmc_types.h"
 
 #if defined(BOARD_TYPE_PAPER_S3)
 
@@ -24,11 +25,11 @@ private:
 
 public:
   static inline InkPlatePlatform & get_singleton() noexcept { return singleton; }
-
   // For now, setup/light_sleep/deep_sleep are minimal stubs.
   bool setup(bool sd_card_init = false);
   bool light_sleep(uint32_t minutes_to_sleep, gpio_num_t gpio_num = (gpio_num_t)0, int level = 1);
   void deep_sleep(gpio_num_t gpio_num = (gpio_num_t)0, int level = 1);
+  sdmmc_card_t* get_sd_card();
 };
 
 extern InkPlatePlatform & inkplate_platform;

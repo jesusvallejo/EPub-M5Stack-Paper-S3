@@ -120,4 +120,8 @@ LOG_I("Paper S3: Performing full hardware power down.");
   esp_deep_sleep_start();
 }
 
+sdmmc_card_t* InkPlatePlatform::get_sd_card() {
+    return s_sd_card;
+}
+
 #endif // BOARD_TYPE_PAPER_S3

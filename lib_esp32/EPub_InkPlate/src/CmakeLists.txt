@@ -1,0 +1,11 @@
+# lib_esp32/EPub_InkPlate/CMakeLists.txt
+
+file(GLOB_RECURSE src_files "src/*.cpp" "src/*.c")
+
+idf_component_register(
+    SRCS ${src_files}
+    INCLUDE_DIRS "src"
+    # The 'REQUIRES' line tells CMake to pull in the header paths 
+    # from these other components.
+    REQUIRES esp_tinyusb fatfs sdmmc
+)

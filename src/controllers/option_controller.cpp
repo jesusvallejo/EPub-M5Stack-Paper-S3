@@ -17,6 +17,8 @@
 #include "models/config.hpp"
 #include "models/epub.hpp"
 #include "models/nvs_mgr.hpp"
+#include "inkplate_platform.hpp"
+#include "USBEmulation.hpp"
 
 #if EPUB_INKPLATE_BUILD
   #include "esp_system.h"
@@ -202,6 +204,32 @@ wifi_mode()
   #endif
 }
 
+extern InkPlatePlatform & inkplate_platform; 
+
+void usb_emulation_mode()
+{
+#if defined(BOARD_TYPE_PAPER_S3)
+    static const char* TAG = "OPT_CTRL";
+    LOG_I("Stopping services for USB Mode...");
+    
+    epub.close_file();
+    fonts.clear(true);
+    fonts.clear_glyph_caches();
+    event_mgr.set_stay_on(true); 
+
+    // 1. Grab the card from the platform
+    sdmmc_card_t* card = inkplate_platform.get_sd_card();
+
+    if (!card) {
+        LOG_E("No SD Card detected. Cannot enter USB mode.");
+        return;
+    }
+
+    // 2. Pass it directly to the USB session
+    USBEmulation::run_msc_session(card);
+#endif
+}
+
 static void
 init_nvs()
 {
@@ -335,6 +363,9 @@ static MenuViewer::MenuEntry menu[] = {
   { MenuViewer::Icon::MAIN_PARAMS,   "Main parameters",                      main_parameters                  , true,  true  },
   { MenuViewer::Icon::FONT_PARAMS,   "Default e-books parameters",           default_parameters               , true,  true  },
   { MenuViewer::Icon::WIFI,          "WiFi Access to the e-books folder",    wifi_mode                        , true,  true  },
+  #if defined(BOARD_TYPE_PAPER_S3)
+  { MenuViewer::Icon::DEBUG,           "USB SD-Card emulation",                usb_emulation_mode               , true,  true  },
+  #endif
   //{ MenuViewer::Icon::REFRESH,       "Refresh the e-books list",             CommonActions::refresh_books_dir , true,  true  },
   #if !(INKPLATE_6PLUS || MENU_6PLUS)
     //{ MenuViewer::Icon::CLR_HISTORY, "Clear e-books' read history",          init_nvs                         , true,  true  },
