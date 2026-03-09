@@ -210,23 +210,32 @@ void usb_emulation_mode()
 {
 #if defined(BOARD_TYPE_PAPER_S3)
     static const char* TAG = "OPT_CTRL";
-    LOG_I("Stopping services for USB Mode...");
-    
-    epub.close_file();
-    fonts.clear(true);
-    fonts.clear_glyph_caches();
-    event_mgr.set_stay_on(true); 
 
-    // 1. Grab the card from the platform
+    // 1. Verify the card is present before asking the user.
+    // NOTE: We do NOT tear down fonts/epub yet — that only happens after the user confirms.
     sdmmc_card_t* card = inkplate_platform.get_sd_card();
 
     if (!card) {
         LOG_E("No SD Card detected. Cannot enter USB mode.");
+        msg_viewer.show(
+            MsgViewer::MsgType::ALERT,
+            false, true,
+            "USB Drive Mode",
+            "No SD card detected. Please insert an SD card and try again.");
         return;
     }
 
-    // 2. Pass it directly to the USB session
-    USBEmulation::run_msc_session(card);
+    // 2. Ask for confirmation — actual USB start happens in input_event()
+    msg_viewer.show(
+        MsgViewer::MsgType::CONFIRM,
+        true,  // renders OK / CANCEL buttons
+        true,  // clear screen
+        "USB Drive Mode",
+        "The SD card will be shared with your computer.\n\n"
+        "IMPORTANT: Always safely eject / unmount the drive from your computer "
+        "before unplugging the USB cable. Skipping this step can corrupt your SD card.");
+
+    option_controller.set_waiting_usb_confirm();
 #endif
 }
 
@@ -545,6 +554,43 @@ OptionController::input_event(const EventMgr::Event & event)
         set_clock();
       }
     }
+  #endif
+
+  #if defined(BOARD_TYPE_PAPER_S3)
+  else if (waiting_usb_confirm) {
+    bool ok;
+    if (msg_viewer.confirm(event, ok)) {
+      waiting_usb_confirm = false;
+      if (ok) {
+        static const char* TAG = "OPT_CTRL";
+        LOG_I("USB confirmed — stopping services...");
+        epub.close_file();
+        fonts.clear(true);
+        fonts.clear_glyph_caches();
+        event_mgr.set_stay_on(true);
+
+        sdmmc_card_t* card = inkplate_platform.get_sd_card();
+        if (card) {
+          // Show the persistent warning that stays on screen during the session
+          msg_viewer.show(
+              MsgViewer::MsgType::ALERT,
+              false, true,
+              "USB Drive Mode Active",
+              "Your SD card is now shared with your computer.\n\n"
+              "\xe2\x9a\xa0  Before unplugging the USB cable, you MUST first safely "
+              "eject / unmount the drive from your computer.\n\n"
+              "Unplugging without ejecting can corrupt your SD card and your books.");
+          USBEmulation::run_msc_session(card);
+        } else {
+          LOG_E("Card disappeared before USB session could start.");
+          menu_viewer.clear_highlight();
+        }
+      } else {
+        // User cancelled — return to menu
+        menu_viewer.clear_highlight();
+      }
+    }
+  }
   #endif
 
   #if EPUB_INKPLATE_BUILD

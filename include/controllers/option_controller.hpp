@@ -24,6 +24,7 @@ class OptionController
     #endif
 
     bool wait_for_key_after_wifi;
+    bool waiting_usb_confirm;
 
   public:
     OptionController() : main_form_is_shown(false), 
@@ -35,7 +36,8 @@ class OptionController
                          #if INKPLATE_6PLUS
                            calibration_is_shown(false),
                          #endif
-                         wait_for_key_after_wifi(false) { };
+                         wait_for_key_after_wifi(false),
+                         waiting_usb_confirm(false) { };
                          
     void    input_event(const EventMgr::Event & event);
     void          enter();
@@ -57,6 +59,19 @@ class OptionController
       wait_for_key_after_wifi   = true; 
       main_form_is_shown        = false;
       font_form_is_shown        = false;
+      #if DATE_TIME_RTC
+        date_time_form_is_shown = false;
+      #endif
+      #if INKPLATE_6PLUS
+        calibration_is_shown    = false;
+      #endif
+    }
+
+    inline void set_waiting_usb_confirm() {
+      waiting_usb_confirm       = true;
+      main_form_is_shown        = false;
+      font_form_is_shown        = false;
+      wait_for_key_after_wifi   = false;
       #if DATE_TIME_RTC
         date_time_form_is_shown = false;
       #endif

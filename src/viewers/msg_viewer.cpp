@@ -60,22 +60,24 @@ void MsgViewer::show(
     .display            = CSS::Display::INLINE
   };
 
-  fmt.screen_left        = (Screen::get_width()  - width ) >> 1;
-  fmt.screen_right       = (Screen::get_width()  - width ) >> 1;
-  fmt.screen_top         = (Screen::get_height() - HEIGHT) >> 1;
-  fmt.screen_bottom      = (Screen::get_height() - HEIGHT) >> 1;
+  const uint16_t box_height = (msg_type == MsgType::CONFIRM) ? HEIGHT2 : HEIGHT;
+
+  fmt.screen_left        = (Screen::get_width()  - width     ) >> 1;
+  fmt.screen_right       = (Screen::get_width()  - width     ) >> 1;
+  fmt.screen_top         = (Screen::get_height() - box_height) >> 1;
+  fmt.screen_bottom      = (Screen::get_height() - box_height) >> 1;
 
   page.set_compute_mode(Page::ComputeMode::DISPLAY);
   
   page.start(fmt);
 
   page.clear_region(
-    Dim(width, HEIGHT), 
-    Pos((Screen::get_width()  - width ) >> 1, (Screen::get_height() - HEIGHT) >> 1));
+    Dim(width, box_height), 
+    Pos((Screen::get_width()  - width     ) >> 1, (Screen::get_height() - box_height) >> 1));
 
   page.put_highlight(
-    Dim(width - 4, HEIGHT - 4), 
-    Pos(((Screen::get_width() - width ) >> 1) + 2, ((Screen::get_height() - HEIGHT) >> 1) + 2));
+    Dim(width - 4, box_height - 4), 
+    Pos(((Screen::get_width() - width     ) >> 1) + 2, ((Screen::get_height() - box_height) >> 1) + 2));
 
   Font * font = fonts.get(0);
 
@@ -144,8 +146,8 @@ void MsgViewer::show(
         font->get_size("CANCEL", &dim,    10); 
         font->get_size("OK",     &ok_dim, 10); 
         buttons_dim = Dim(dim.width + 20, dim.height + 20);
-        ok_pos = Pos((Screen::get_width() >> 1) - 20 - buttons_dim.width, fmt.screen_top + 220);
-        cancel_pos = Pos((Screen::get_width() >> 1) + 20, fmt.screen_top + 220);
+        ok_pos = Pos((Screen::get_width() >> 1) - 20 - buttons_dim.width, fmt.screen_top + HEIGHT2 - 80);
+        cancel_pos = Pos((Screen::get_width() >> 1) + 20, fmt.screen_top + HEIGHT2 - 80);
 
         page.put_rounded(buttons_dim, ok_pos);
         page.put_rounded(Dim(buttons_dim.width + 2, buttons_dim.height + 2),

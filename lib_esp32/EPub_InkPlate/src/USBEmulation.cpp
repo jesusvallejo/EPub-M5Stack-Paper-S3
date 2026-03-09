@@ -27,6 +27,7 @@ void USBEmulation::run_msc_session(sdmmc_card_t* card) {
         // uint32_t timeout = 0;
         
         while (true) {
+            vTaskDelay(pdMS_TO_TICKS(500)); // Yield CPU; no need to spin at 100%
             if (!battery.is_usb_connected()) {
                 esp_restart(); // Reboot if USB is disconnected
             }
