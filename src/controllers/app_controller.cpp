@@ -17,6 +17,7 @@
 #endif
 
 #include "screen.hpp"
+#include "viewers/battery_viewer.hpp"
 
 AppController::AppController() : 
   current_ctrl(Ctrl::DIR),
@@ -101,6 +102,13 @@ void
 AppController::input_event(const EventMgr::Event & event)
 {
   if (next_ctrl != Ctrl::NONE) launch();
+
+  #if defined(BOARD_TYPE_PAPER_S3)
+    if (event.kind == EventMgr::EventKind::BATTERY_UPDATE) {
+      BatteryViewer::update();
+      return;
+    }
+  #endif
 
   #if INKPLATE_6PLUS
     if (event.kind == EventMgr::EventKind::PINCH_ENLARGE) {

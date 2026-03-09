@@ -1,6 +1,7 @@
 #define __BATTERY_VIEWER__ 1
 #include "viewers/battery_viewer.hpp"
 #include "viewers/page.hpp"
+#include "viewers/screen_bottom.hpp"
 #include "models/config.hpp"
 #include "battery.hpp"
 #include "screen.hpp"
@@ -65,6 +66,25 @@ void BatteryViewer::show() {
 }
 
 void BatteryViewer::update() {
-    // For now, just call show() to refresh the battery status
-    show(); 
+    Font * font = fonts.get(ScreenBottom::FONT);
+    if (!font) return;
+
+    Page::Format fmt = {
+        .line_height_factor = 1.0, .font_index = ScreenBottom::FONT,
+        .font_size = ScreenBottom::FONT_SIZE,
+        .indent = 0, .margin_left = 0, .margin_right = 0, .margin_top = 0, .margin_bottom = 0,
+        .screen_left = 10, .screen_right = 10, .screen_top = 10, .screen_bottom = 10,
+        .width = 0, .height = 0, .vertical_align = 0, .trim = true, .pre = false,
+        .font_style = Fonts::FaceStyle::NORMAL, .align = CSS::Align::LEFT,
+        .text_transform = CSS::TextTransform::NONE, .display = CSS::Display::INLINE
+    };
+
+    page.start(fmt);
+
+    uint16_t strip_h = font->get_chars_height(ScreenBottom::FONT_SIZE) + 10;
+    page.clear_region(Dim(180, strip_h), Pos(0, Screen::get_height() - strip_h));
+
+    show();
+
+    page.paint(false, true, true);
 }

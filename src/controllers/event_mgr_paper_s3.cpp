@@ -123,25 +123,32 @@ static bool gt911_read_point(uint16_t * x, uint16_t * y)
 
 /**
  * Real-time Battery Monitor Task
+ * - Sends BATTERY_UPDATE immediately when USB plug/unplug is detected.
+ * - Sends BATTERY_UPDATE every 60 s for the periodic minute refresh.
  */
 static void battery_monitor_task(void * param)
 {
     (void)param;
-    bool  last_usb = battery.is_usb_connected();
-    float last_v   = battery.read_level();
+    bool  last_usb     = battery.is_usb_connected();
+    int   tick_count   = 0;
+    const int MINUTE_TICKS = 60;  // fires every 1 s, so 60 = 1 minute
 
     while (true) {
-        bool  current_usb = battery.is_usb_connected();
-        float current_v   = battery.read_level();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        tick_count++;
 
-        if (current_usb != last_usb || std::abs(current_v - last_v) > 0.1) {
-            last_usb = current_usb;
-            last_v   = current_v;
+        bool current_usb = battery.is_usb_connected();
+        bool usb_changed = (current_usb != last_usb);
 
-            BatteryViewer::update();
-            screen.update(false); 
+        if (usb_changed || (tick_count >= MINUTE_TICKS)) {
+            if (usb_changed) last_usb = current_usb;
+            if (tick_count >= MINUTE_TICKS) tick_count = 0;
+
+            EventMgr::Event ev;
+            ev.kind = EventMgr::EventKind::BATTERY_UPDATE;
+            ev.x = 0; ev.y = 0; ev.dist = 0;
+            if (input_event_queue) xQueueSend(input_event_queue, &ev, 0);
         }
-        vTaskDelay(pdMS_TO_TICKS(1000)); 
     }
 }
 
@@ -246,8 +253,8 @@ bool EventMgr::setup()
   if (gt911_read_reg(0x14, 0x8140, &buf, 1) == ESP_OK) { gt911_addr = 0x14; gt911_ok = true; }
   else if (gt911_read_reg(0x5D, 0x8140, &buf, 1) == ESP_OK) { gt911_addr = 0x5D; gt911_ok = true; }
 
-  xTaskCreatePinnedToCore(touch_task, "touch", 4096, nullptr, 5, nullptr, 1);
-  //xTaskCreatePinnedToCore(battery_monitor_task, "bat_mon", 4096, nullptr, 2, nullptr, 1);
+  xTaskCreatePinnedToCore(touch_task,           "touch",   4096, nullptr, 5, nullptr, 1);
+  xTaskCreatePinnedToCore(battery_monitor_task, "bat_mon", 2048, nullptr, 2, nullptr, 1);
 
 #endif
   return true;
