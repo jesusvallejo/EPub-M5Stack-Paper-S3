@@ -25,6 +25,11 @@
   #include "alloc.hpp"
   #include "esp.hpp"
   #include "esp_task_wdt.h"
+  #include "esp_system.h"
+
+  #if defined(BOARD_TYPE_PAPER_S3)
+    #include "embed/tiny_font.hpp"  // Embedded 8x8 font — no SD card needed
+  #endif
 
   #if INKPLATE_6PLUS
     #include "controllers/back_lit.hpp"
@@ -181,12 +186,62 @@
         app_controller.start();
       }
       else {
-        LOG_E("Font loading error.");
-        msg_viewer.show(MsgViewer::MsgType::ALERT, false, true, "Font Loading Problem!",
-          "Unable to read required fonts. Entering Deep Sleep. " MSG
-        );
-        ESP::delay(500);
-        inkplate_platform.deep_sleep(INT_PIN, LEVEL);
+        LOG_E("Font/SD-card error.");
+
+        #if defined(BOARD_TYPE_PAPER_S3)
+          // Fonts live on the SD card.  If they cannot be loaded the card is
+          // likely not inserted.  Init the display independently of the SD card
+          // (epdiy does not use the SD SPI bus) and show a visible indicator
+          // using only geometric primitives — no fonts needed.
+          screen.setup(Screen::PixelResolution::THREE_BITS, Screen::Orientation::BOTTOM);
+          {
+            const uint16_t W = Screen::get_width();   // 540
+            const uint16_t H = Screen::get_height();  // 960
+
+            screen.clear();
+
+            // Draw a thick border around the message area
+            const uint16_t BW = 500, BH = 360;
+            const uint16_t BX = (uint16_t)((W - BW) / 2);
+            const uint16_t BY = (uint16_t)((H - BH) / 2);
+            screen.draw_rectangle(Dim(BW,     BH    ), Pos(BX,     BY    ), Screen::BLACK_COLOR);
+            screen.draw_rectangle(Dim(BW - 4, BH - 4), Pos(BX + 2, BY + 2), Screen::BLACK_COLOR);
+            screen.draw_rectangle(Dim(BW - 8, BH - 8), Pos(BX + 4, BY + 4), Screen::BLACK_COLOR);
+
+            // scale=3 → each character is 24×24px (max ~20 chars/line at 540 width)
+            constexpr uint8_t SC  = 3;
+            constexpr uint16_t CH = (uint16_t)(8 * SC);   // char height = 24
+            constexpr uint16_t LG = (uint16_t)(SC * 3);   // line gap    = 9
+
+            uint16_t y = (uint16_t)(BY + 40);
+            prim_draw_text_centered("SD CARD NOT FOUND",  y, SC); y += (uint16_t)(CH + LG);
+            prim_draw_text_centered("-------------",       y, SC); y += (uint16_t)(CH + LG * 2);
+            prim_draw_text_centered("INSERT SD CARD TO",  y, SC); y += (uint16_t)(CH + LG);
+            prim_draw_text_centered("CONTINUE.",          y, SC); y += (uint16_t)(CH + LG * 2);
+            prim_draw_text_centered("DEVICE WILL RESTART",y, SC); y += (uint16_t)(CH + LG);
+            prim_draw_text_centered("AUTOMATICALLY.",     y, SC);
+
+            screen.update(true);   // full GC16 refresh
+          }
+
+          // Poll for SD card every 3 s; restart cleanly once it is readable.
+          // Calling setup(true) is safe on repeated attempts: spi_bus_initialize
+          // returns ESP_ERR_INVALID_STATE (bus already inited) which is handled
+          // inside setup(), and esp_vfs_fat_sdspi_mount is retried each time.
+          while (true) {
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            if (inkplate_platform.setup(true)) {
+              esp_restart();   // clean re-boot with SD card now mounted
+            }
+          }
+
+        #else
+          msg_viewer.show(MsgViewer::MsgType::ALERT, false, true, "Font Loading Problem!",
+            "Unable to read required fonts. Entering Deep Sleep. " MSG
+          );
+          ESP::delay(500);
+          inkplate_platform.deep_sleep(INT_PIN, LEVEL);
+        #endif
       }
 
       #if DEBUGGING
