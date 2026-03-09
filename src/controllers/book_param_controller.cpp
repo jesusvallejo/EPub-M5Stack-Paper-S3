@@ -18,8 +18,10 @@
 #include "viewers/form_viewer.hpp"
 #include "viewers/msg_viewer.hpp"
 
-#if EPUB_INKPLATE_BUILD && !BOARD_TYPE_PAPER_S3
+#if EPUB_INKPLATE_BUILD
   #include "esp_system.h"
+#endif
+#if EPUB_INKPLATE_BUILD && !defined(BOARD_TYPE_PAPER_S3)
   #include "eink.hpp"
   #include "esp.hpp"
   #include "soc/rtc.h"
@@ -105,44 +107,11 @@ book_parameters()
 static void
 revert_to_defaults()
 {
-  page_locs.stop_document();
-  
-  EPub::BookFormatParams * book_format_params = epub.get_book_format_params();
-
-  BookParams * book_params = epub.get_book_params();
-
-  old_use_fonts_in_book = book_format_params->use_fonts_in_book;
-  old_font              = book_format_params->font;
-
-  constexpr int8_t default_value = -1;
-
-  book_params->put(BookParams::Ident::SHOW_IMAGES,       default_value);
-  book_params->put(BookParams::Ident::FONT_SIZE,         default_value);
-  book_params->put(BookParams::Ident::FONT,              default_value);
-  book_params->put(BookParams::Ident::USE_FONTS_IN_BOOK, default_value);
-  
-  epub.update_book_format_params();
-
-  book_params->save();
-
-  msg_viewer.show(MsgViewer::MsgType::INFO, 
-                  false, false, 
-                  "E-book parameters reverted", 
-                  "E-book parameters reverted to default values.");
-
-  if (old_use_fonts_in_book != book_format_params->use_fonts_in_book) {
-    if (book_format_params->use_fonts_in_book) {
-      epub.load_fonts();
-    }
-    else {
-      fonts.clear();
-      fonts.clear_glyph_caches();
-    }
-  }
-
-  if (old_font != book_format_params->font) {
-    fonts.adjust_default_font(book_format_params->font);
-  }
+  msg_viewer.show(MsgViewer::MsgType::CONFIRM, true, true,
+                  "Revert e-book parameters",
+                  "All parameters for this e-book will be reset to the "
+                  "application defaults. Continue?");
+  book_param_controller.set_waiting_revert_confirm();
 }
 
 static void 
@@ -174,15 +143,11 @@ static void
 wifi_mode()
 {
   #if EPUB_INKPLATE_BUILD
-    epub.close_file();
-    fonts.clear(true);
-    fonts.clear_glyph_caches();
-    
-    event_mgr.set_stay_on(true); // DO NOT sleep
-
-    if (start_web_server()) {
-      book_param_controller.set_wait_for_key_after_wifi();
-    }
+    msg_viewer.show(MsgViewer::MsgType::CONFIRM, true, true,
+                    "WiFi Access",
+                    "The e-book will be closed and WiFi file access will start. "
+                    "The device will restart when done. Continue?");
+    book_param_controller.set_waiting_wifi_confirm();
   #endif
 }
 
@@ -202,10 +167,10 @@ static MenuViewer::MenuEntry menu[10] = {
   { MenuViewer::Icon::TOC,         "Table of Content",                     toc_ctrl                     , false, true },
   { MenuViewer::Icon::BOOK_LIST,   "E-Books list",                         books_list                   , true , true },
   { MenuViewer::Icon::FONT_PARAMS, "Current e-book parameters",            book_parameters              , true , true },
-  //{ MenuViewer::Icon::REVERT,      "Revert e-book parameters to "
-  //                                 "default values",                       revert_to_defaults           , true , true },  
-  //{ MenuViewer::Icon::DELETE,      "Delete the current e-book",            delete_book                  , true , true },
-  //{ MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                    , true , true },
+  { MenuViewer::Icon::REVERT,      "Revert e-book parameters to "
+                                   "default values",                       revert_to_defaults           , true , true },  
+  { MenuViewer::Icon::DELETE,      "Delete the current e-book",            delete_book                  , true , true },
+  { MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                    , true , true },
   //{ MenuViewer::Icon::INFO,        "About the EPub-InkPlate application",  CommonActions::about         , true , true },
   { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off                    , true , true },
   { MenuViewer::Icon::END_MENU,    nullptr,                                nullptr                      , false, true }
@@ -270,8 +235,7 @@ BookParamController::input_event(const EventMgr::Event & event)
     bool ok;
     if (msg_viewer.confirm(event, ok)) {
       if (ok) {
-        std::string filepath = epub.get_current_filename();
-        struct stat file_stat;
+        std::string filepath = epub.get_current_filename();        struct stat file_stat;
 
         if (stat(filepath.c_str(), &file_stat) != -1) {
           LOG_I("Deleting %s...", filepath.c_str());
@@ -315,6 +279,63 @@ BookParamController::input_event(const EventMgr::Event & event)
       delete_current_book = false;
     }
   }
+  else if (waiting_revert_confirm) {
+    bool ok;
+    if (msg_viewer.confirm(event, ok)) {
+      waiting_revert_confirm = false;
+      if (ok) {
+        page_locs.stop_document();
+
+        EPub::BookFormatParams * book_format_params = epub.get_book_format_params();
+        BookParams * book_params = epub.get_book_params();
+
+        old_use_fonts_in_book = book_format_params->use_fonts_in_book;
+        old_font              = book_format_params->font;
+
+        constexpr int8_t default_value = -1;
+        book_params->put(BookParams::Ident::SHOW_IMAGES,       default_value);
+        book_params->put(BookParams::Ident::FONT_SIZE,         default_value);
+        book_params->put(BookParams::Ident::FONT,              default_value);
+        book_params->put(BookParams::Ident::USE_FONTS_IN_BOOK, default_value);
+
+        epub.update_book_format_params();
+        book_params->save();
+
+        msg_viewer.show(MsgViewer::MsgType::INFO, false, false,
+                        "E-book parameters reverted",
+                        "E-book parameters reverted to default values.");
+
+        if (old_use_fonts_in_book != book_format_params->use_fonts_in_book) {
+          if (book_format_params->use_fonts_in_book) epub.load_fonts();
+          else { fonts.clear(); fonts.clear_glyph_caches(); }
+        }
+        if (old_font != book_format_params->font) {
+          fonts.adjust_default_font(book_format_params->font);
+        }
+      } else {
+        menu_viewer.show(menu, 0, true);
+      }
+    }
+  }
+  #if EPUB_INKPLATE_BUILD
+  else if (waiting_wifi_confirm) {
+    bool ok;
+    if (msg_viewer.confirm(event, ok)) {
+      waiting_wifi_confirm = false;
+      if (ok) {
+        epub.close_file();
+        fonts.clear(true);
+        fonts.clear_glyph_caches();
+        event_mgr.set_stay_on(true);
+        if (start_web_server()) {
+          book_param_controller.set_wait_for_key_after_wifi();
+        }
+      } else {
+        menu_viewer.show(menu, 0, true);
+      }
+    }
+  }
+  #endif
   #if EPUB_INKPLATE_BUILD
     else if (wait_for_key_after_wifi) {
       msg_viewer.show(MsgViewer::MsgType::INFO, 

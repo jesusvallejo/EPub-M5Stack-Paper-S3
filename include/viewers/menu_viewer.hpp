@@ -16,11 +16,11 @@ class MenuViewer
                       FONT_PARAMS, POWEROFF,    WIFI,      INFO,   TOC,       DEBUG, 
                       DELETE,      CLOCK,       NTP_CLOCK, CALIB,  PREV_MENU, NEXT_MENU, REVERT, 
                       END_MENU,    USB };
-    char icon_char[20] = { 
+    char icon_char[21] = { 
                       '@',         'T',         'R',       'E',    'F',       'C', 
                       'A',         'Z',         'S',       'I',    'L',       'H', 
                       'K',         'N',         'Y',       'M',    'O',       'P',   
-                      'U',         'V' };
+                      'U',         '-',         'V' };
     struct MenuEntry {
       Icon icon;
       const char * caption;
@@ -35,15 +35,24 @@ class MenuViewer
   private:
     static constexpr char const * TAG = "MenuViewer";
 
-    static const int16_t ICON_SIZE           = 18;
-    static const int16_t CAPTION_SIZE        = 10;
-
-    #if INKPLATE_6PLUS
-      static const int16_t SPACE_BETWEEN_ICONS = 70;
-      static const int16_t ICONS_LEFT_OFFSET   = 20;
+    #if defined(BOARD_TYPE_PAPER_S3)
+      static const int16_t ICON_SIZE             = 24;
+      static const int16_t CAPTION_SIZE          = 10;
+      static const int16_t SPACE_BETWEEN_ICONS   = 90;
+      static const int16_t ICONS_LEFT_OFFSET     = 25;
+      static const int16_t NEXT_MENU_RIGHT_OFFSET = 48;
+    #elif INKPLATE_6PLUS
+      static const int16_t ICON_SIZE             = 18;
+      static const int16_t CAPTION_SIZE          = 10;
+      static const int16_t SPACE_BETWEEN_ICONS   = 70;
+      static const int16_t ICONS_LEFT_OFFSET     = 20;
+      static const int16_t NEXT_MENU_RIGHT_OFFSET = SPACE_BETWEEN_ICONS;
     #else
-      static const int16_t SPACE_BETWEEN_ICONS = 70;
-      static const int16_t ICONS_LEFT_OFFSET   = 20;
+      static const int16_t ICON_SIZE             = 18;
+      static const int16_t CAPTION_SIZE          = 10;
+      static const int16_t SPACE_BETWEEN_ICONS   = 70;
+      static const int16_t ICONS_LEFT_OFFSET     = 20;
+      static const int16_t NEXT_MENU_RIGHT_OFFSET = SPACE_BETWEEN_ICONS;
     #endif
 
     uint8_t  current_entry_index;

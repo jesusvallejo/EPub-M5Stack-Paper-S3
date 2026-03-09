@@ -189,14 +189,49 @@ bool MsgViewer::confirm(const EventMgr::Event & event, bool & ok)
   #if defined(INKPLATE_6PLUS) || TOUCH_TRIAL
 
     if (event.kind == EventMgr::EventKind::TAP) {
+      Pos * pressed = nullptr;
+
       if ((event.x >= ok_pos.x) && (event.x <= (ok_pos.x + buttons_dim.width )) &&
           (event.y >= ok_pos.y) && (event.y <= (ok_pos.y + buttons_dim.height))) {
         ok = true;
-        return true;
+        pressed = &ok_pos;
       }
       else if ((event.x >= cancel_pos.x) && (event.x <= (cancel_pos.x + buttons_dim.width )) &&
                (event.y >= cancel_pos.y) && (event.y <= (cancel_pos.y + buttons_dim.height))) {
         ok = false;
+        pressed = &cancel_pos;
+      }
+
+      if (pressed != nullptr) {
+        // Flash the pressed button to acknowledge the tap
+        Page::Format fmt = {
+          .line_height_factor = 1.0,
+          .font_index         =   0,
+          .font_size          =  10,
+          .indent             =   0,
+          .margin_left        =   0,
+          .margin_right       =   0,
+          .margin_top         =   0,
+          .margin_bottom      =   0,
+          .screen_left        =   0,
+          .screen_right       =   0,
+          .screen_top         =   0,
+          .screen_bottom      =   0,
+          .width              =   0,
+          .height             =   0,
+          .vertical_align     =   0,
+          .trim               = true,
+          .pre                = false,
+          .font_style         = Fonts::FaceStyle::NORMAL,
+          .align              = CSS::Align::LEFT,
+          .text_transform     = CSS::TextTransform::NONE,
+          .display            = CSS::Display::INLINE
+        };
+        page.start(fmt);
+        page.put_highlight(
+          Dim(buttons_dim.width  + 4, buttons_dim.height + 4),
+          Pos(pressed->x - 2,         pressed->y - 2        ));
+        page.paint(false, true, true);
         return true;
       }
     }

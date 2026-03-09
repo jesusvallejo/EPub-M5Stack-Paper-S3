@@ -191,16 +191,14 @@ default_parameters()
 static void
 wifi_mode()
 {
-  #if EPUB_INKPLATE_BUILD  
-    epub.close_file();
-    fonts.clear(true);
-    fonts.clear_glyph_caches();
-    
-    event_mgr.set_stay_on(true); // DO NOT sleep
-
-    if (start_web_server()) {
-      option_controller.set_wait_for_key_after_wifi();
-    }
+  #if EPUB_INKPLATE_BUILD
+    msg_viewer.show(
+      MsgViewer::MsgType::CONFIRM,
+      true, true,
+      "WiFi Access",
+      "The current session will be closed and WiFi file access will start. "
+      "The device will restart when done. Continue?");
+    option_controller.set_waiting_wifi_confirm();
   #endif
 }
 
@@ -242,29 +240,27 @@ void usb_emulation_mode()
 static void
 init_nvs()
 {
-  menu_viewer.clear_highlight();
-  #if EPUB_INKPLATE_BUILD
-    if (nvs_mgr.setup(true)) {
-      msg_viewer.show(
-        MsgViewer::MsgType::BOOK, 
-        false,
-        false,
-        "E-Books History Cleared", 
-        "The E-Books History has been initialized with success.");
-    }
-    else {
-      msg_viewer.show(
-        MsgViewer::MsgType::BOOK, 
-        false,
-        false,
-        "E-Books History Clearing Error", 
-        "The E-Books History has not been initialized properly. "
-        "Potential hardware problem or software framework issue.");
-    }
-  #endif
+  msg_viewer.show(
+    MsgViewer::MsgType::CONFIRM,
+    true, true,
+    "Clear E-Books History",
+    "All e-book reading history will be permanently deleted. "
+    "This cannot be undone. Continue?");
+  option_controller.set_waiting_clr_history_confirm();
 }
 
-#if INKPLATE_6PLUS || MENU_6PLUS
+static void
+power_off_mode()
+{
+  msg_viewer.show(
+    MsgViewer::MsgType::CONFIRM,
+    true, true,
+    "Power Off",
+    "The device will enter deep sleep. Continue?");
+  option_controller.set_waiting_poweroff_confirm();
+}
+
+#if INKPLATE_6PLUS || MENU_6PLUS || defined(BOARD_TYPE_PAPER_S3)
   static void goto_next();
   static void goto_prev();
 #endif
@@ -365,34 +361,42 @@ init_nvs()
 // IMPORTANT!!!
 // The first (menu[0]) and the last menu entry (the one before END_MENU) MUST ALWAYS BE VISIBLE!!!
 
+#if defined(BOARD_TYPE_PAPER_S3)
+// Page 1: Navigation and connectivity
 static MenuViewer::MenuEntry menu[] = {
-
+  { MenuViewer::Icon::RETURN,      "Return to the e-books list",           CommonActions::return_to_last , true,  true  },
+  { MenuViewer::Icon::BOOK,        "Return to the last e-book being read", CommonActions::show_last_book , true,  true  },
+  { MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                     , true,  true  },
+  { MenuViewer::Icon::USB,         "USB SD-Card emulation",                usb_emulation_mode            , true,  true  },
+  { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off_mode                , true,  true  },
+  { MenuViewer::Icon::NEXT_MENU,   "More options",                         goto_next                     , true,  true  },
+  { MenuViewer::Icon::END_MENU,     nullptr,                               nullptr                       , false, false }
+};
+#else
+static MenuViewer::MenuEntry menu[] = {
   { MenuViewer::Icon::RETURN,        "Return to the e-books list",           CommonActions::return_to_last    , true,  true  },
   { MenuViewer::Icon::BOOK,          "Return to the last e-book being read", CommonActions::show_last_book    , true,  true  },
   { MenuViewer::Icon::MAIN_PARAMS,   "Main parameters",                      main_parameters                  , true,  true  },
   { MenuViewer::Icon::FONT_PARAMS,   "Default e-books parameters",           default_parameters               , true,  true  },
   { MenuViewer::Icon::WIFI,          "WiFi Access to the e-books folder",    wifi_mode                        , true,  true  },
-  #if defined(BOARD_TYPE_PAPER_S3)
-  { MenuViewer::Icon::DEBUG,           "USB SD-Card emulation",                usb_emulation_mode               , true,  true  },
-  #endif
-  //{ MenuViewer::Icon::REFRESH,       "Refresh the e-books list",             CommonActions::refresh_books_dir , true,  true  },
+  //{ MenuViewer::Icon::REFRESH,     "Refresh the e-books list",             CommonActions::refresh_books_dir , true,  true  },
   #if !(INKPLATE_6PLUS || MENU_6PLUS)
-    //{ MenuViewer::Icon::CLR_HISTORY, "Clear e-books' read history",          init_nvs                         , true,  true  },
+    { MenuViewer::Icon::CLR_HISTORY, "Clear e-books' read history",          init_nvs                         , true,  true  },
     #if DATE_TIME_RTC
-      //{ MenuViewer::Icon::CLOCK,     "Set Date/Time",                        clock_adjust_form                , true,  true  },
       { MenuViewer::Icon::NTP_CLOCK, "Retrieve Date/Time from Time Server",  ntp_clock_adjust                 , true,  true  },
     #endif
   #endif
   #if EPUB_LINUX_BUILD && DEBUGGING
     { MenuViewer::Icon::DEBUG,       "Debugging",                            debugging                        , true,  true  },
   #endif
-  //{ MenuViewer::Icon::INFO,          "About the EPub-InkPlate application",  CommonActions::about             , true,  true  },
-  { MenuViewer::Icon::POWEROFF,      "Power OFF (Deep Sleep)",               CommonActions::power_it_off      , true,  true  },
+  //{ MenuViewer::Icon::INFO,        "About the EPub-InkPlate application",  CommonActions::about             , true,  true  },
+  { MenuViewer::Icon::POWEROFF,      "Power OFF (Deep Sleep)",               power_off_mode                   , true,  true  },
   #if INKPLATE_6PLUS || MENU_6PLUS
     { MenuViewer::Icon::NEXT_MENU,   "Other options",                        goto_next                        , true,  true  },
   #endif
   { MenuViewer::Icon::END_MENU,       nullptr,                               nullptr                          , false, false }
 };
+#endif // BOARD_TYPE_PAPER_S3
 
 #if INKPLATE_6PLUS
 static MenuViewer::MenuEntry sub_menu[] = {
@@ -418,6 +422,17 @@ static MenuViewer::MenuEntry sub_menu[] = {
   { MenuViewer::Icon::CLR_HISTORY,   "Clear e-books' read history",          nullptr                          , true,  true  },
   { MenuViewer::Icon::END_MENU,       nullptr,                               nullptr                          , false, false }
 };
+#elif defined(BOARD_TYPE_PAPER_S3)
+// Page 2: Settings and advanced
+static MenuViewer::MenuEntry sub_menu[] = {
+  { MenuViewer::Icon::PREV_MENU,   "Back to main menu",                    goto_prev                        , true,  true  },
+  { MenuViewer::Icon::RETURN,      "Return to the e-books list",           CommonActions::return_to_last    , true,  true  },
+  { MenuViewer::Icon::MAIN_PARAMS, "Main parameters",                      main_parameters                  , true,  true  },
+  { MenuViewer::Icon::FONT_PARAMS, "Default e-books parameters",           default_parameters               , true,  true  },
+  { MenuViewer::Icon::CLR_HISTORY, "Clear e-books' read history",          init_nvs                         , true,  true  },
+  { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off_mode                   , true,  true  },
+  { MenuViewer::Icon::END_MENU,     nullptr,                               nullptr                          , false, false }
+};
 #endif
 
 void
@@ -434,16 +449,18 @@ OptionController::enter()
   font_form_is_shown = false;
 }
 
-#if INKPLATE_6PLUS || MENU_6PLUS
+#if INKPLATE_6PLUS || MENU_6PLUS || defined(BOARD_TYPE_PAPER_S3)
   static void 
   goto_next()
   {
+    option_controller.set_on_sub_menu(true);
     menu_viewer.show(sub_menu);
   }
 
   static void 
   goto_prev()
   {
+    option_controller.set_on_sub_menu(false);
     menu_viewer.show(menu);
   }
 #endif
@@ -583,15 +600,74 @@ OptionController::input_event(const EventMgr::Event & event)
           USBEmulation::run_msc_session(card);
         } else {
           LOG_E("Card disappeared before USB session could start.");
-          menu_viewer.clear_highlight();
+          menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
         }
       } else {
         // User cancelled — return to menu
-        menu_viewer.clear_highlight();
+        menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
       }
     }
   }
   #endif
+
+  else if (waiting_clr_history_confirm) {
+    bool ok;
+    if (msg_viewer.confirm(event, ok)) {
+      waiting_clr_history_confirm = false;
+      if (ok) {
+        #if EPUB_INKPLATE_BUILD
+          if (nvs_mgr.setup(true)) {
+            msg_viewer.show(
+              MsgViewer::MsgType::BOOK,
+              false, false,
+              "E-Books History Cleared",
+              "The E-Books History has been initialized with success.");
+          } else {
+            msg_viewer.show(
+              MsgViewer::MsgType::BOOK,
+              false, false,
+              "E-Books History Clearing Error",
+              "The E-Books History has not been initialized properly. "
+              "Potential hardware problem or software framework issue.");
+          }
+        #endif
+      } else {
+        menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+      }
+    }
+  }
+
+  else if (waiting_wifi_confirm) {
+    bool ok;
+    if (msg_viewer.confirm(event, ok)) {
+      waiting_wifi_confirm = false;
+      if (ok) {
+        #if EPUB_INKPLATE_BUILD
+          epub.close_file();
+          fonts.clear(true);
+          fonts.clear_glyph_caches();
+          event_mgr.set_stay_on(true);
+          if (start_web_server()) {
+            option_controller.set_wait_for_key_after_wifi();
+          }
+        #endif
+      } else {
+        menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+      }
+    }
+  }
+
+  else if (waiting_poweroff_confirm) {
+    bool ok;
+    if (msg_viewer.confirm(event, ok)) {
+      waiting_poweroff_confirm = false;
+      if (ok) {
+        CommonActions::power_it_off();
+      } else {
+        menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+      }
+    }
+  }
 
   #if EPUB_INKPLATE_BUILD
     else if (wait_for_key_after_wifi) {

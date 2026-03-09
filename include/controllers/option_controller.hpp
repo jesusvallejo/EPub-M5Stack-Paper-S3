@@ -25,6 +25,10 @@ class OptionController
 
     bool wait_for_key_after_wifi;
     bool waiting_usb_confirm;
+    bool waiting_clr_history_confirm;
+    bool waiting_wifi_confirm;
+    bool waiting_poweroff_confirm;
+    bool on_sub_menu;
 
   public:
     OptionController() : main_form_is_shown(false), 
@@ -37,7 +41,11 @@ class OptionController
                            calibration_is_shown(false),
                          #endif
                          wait_for_key_after_wifi(false),
-                         waiting_usb_confirm(false) { };
+                         waiting_usb_confirm(false),
+                         waiting_clr_history_confirm(false),
+                         waiting_wifi_confirm(false),
+                         waiting_poweroff_confirm(false),
+                         on_sub_menu(false) { };
                          
     void    input_event(const EventMgr::Event & event);
     void          enter();
@@ -68,17 +76,47 @@ class OptionController
     }
 
     inline void set_waiting_usb_confirm() {
-      waiting_usb_confirm       = true;
-      main_form_is_shown        = false;
-      font_form_is_shown        = false;
-      wait_for_key_after_wifi   = false;
+      waiting_usb_confirm         = true;
+      main_form_is_shown          = false;
+      font_form_is_shown          = false;
+      wait_for_key_after_wifi     = false;
       #if DATE_TIME_RTC
-        date_time_form_is_shown = false;
+        date_time_form_is_shown   = false;
       #endif
       #if INKPLATE_6PLUS
-        calibration_is_shown    = false;
+        calibration_is_shown      = false;
       #endif
     }
+
+    inline void set_waiting_clr_history_confirm() {
+      waiting_clr_history_confirm = true;
+      main_form_is_shown          = false;
+      font_form_is_shown          = false;
+      wait_for_key_after_wifi     = false;
+      waiting_usb_confirm         = false;
+      waiting_wifi_confirm        = false;
+    }
+
+    inline void set_waiting_wifi_confirm() {
+      waiting_wifi_confirm        = true;
+      main_form_is_shown          = false;
+      font_form_is_shown          = false;
+      wait_for_key_after_wifi     = false;
+      waiting_usb_confirm         = false;
+      waiting_clr_history_confirm = false;
+    }
+
+    inline void set_waiting_poweroff_confirm() {
+      waiting_poweroff_confirm    = true;
+      main_form_is_shown          = false;
+      font_form_is_shown          = false;
+      wait_for_key_after_wifi     = false;
+      waiting_usb_confirm         = false;
+      waiting_clr_history_confirm = false;
+      waiting_wifi_confirm        = false;
+    }
+
+    inline void set_on_sub_menu(bool val) { on_sub_menu = val; }
 };
 
 #if __OPTION_CONTROLLER__

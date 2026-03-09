@@ -92,7 +92,7 @@ void MenuViewer::show(MenuEntry * the_menu, uint8_t entry_index, bool clear_scre
       Font::Glyph * glyph;
       glyph = font->get_glyph(ch, ICON_SIZE);
 
-      if (menu[idx].icon == Icon::NEXT_MENU) pos.x = Screen::get_width() - SPACE_BETWEEN_ICONS;
+      if (menu[idx].icon == Icon::NEXT_MENU) pos.x = Screen::get_width() - NEXT_MENU_RIGHT_OFFSET;
 
       if (glyph == nullptr) {
         entry_locs[idx].pos = pos;
