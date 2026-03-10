@@ -17,6 +17,8 @@ void BatteryViewer::show() {
 
     float voltage = battery.read_level();
     bool usb = battery.is_usb_connected();
+    // is_charging() only knows USB is present; use voltage to distinguish
+    // "actively charging" from "fully charged" (USB connected but done).
     bool charging = battery.is_charging();
 
     Page::Format fmt = {
@@ -31,7 +33,13 @@ void BatteryViewer::show() {
     Font * font = fonts.get(0);
     if (!font) return;
 
-    float level = ((voltage - 3.3) * 4.0) / 0.85; 
+    // Voltage range: 3.3 V = 0 %, 4.1 V = 100 %.
+    // Using 0.80 instead of 0.85 so a resting full-charge (~4.1 V) reads ~100 %
+    // rather than ~94 % (the previous constant assumed 4.15 V as 100 %).
+    static constexpr float VBAT_MIN   = 3.3f;
+    static constexpr float VBAT_RANGE = 0.80f;
+
+    float level = ((voltage - VBAT_MIN) * 4.0f) / VBAT_RANGE;
     int16_t icon_index = (int16_t)level;
     if (icon_index > 4) icon_index = 4;
     if (icon_index < 0) icon_index = 0;
@@ -51,9 +59,18 @@ void BatteryViewer::show() {
     if (view_mode == 1 || view_mode == 2) {
         char str[32];
         if (view_mode == 1) {
-            int percentage = (int)((voltage - 3.3) * 100.0 / 0.85);
+            int percentage = (int)((voltage - VBAT_MIN) * 100.0f / VBAT_RANGE);
             if (percentage > 100) percentage = 100;
             if (percentage < 0) percentage = 0;
+            // When USB is connected and the battery appears full (≥95 %),
+            // clamp to 100 % and show FULL rather than CHG.  The charging
+            // terminal voltage inflates the ADC reading, so without this
+            // correction the display jumps from 100 % (plugged) to ~93-99 %
+            // (unplugged) even though the battery is actually full.
+            if (usb && percentage >= 95) {
+                percentage = 100;
+                charging   = false;  // treat as FULL
+            }
             snprintf(str, sizeof(str), "%d%%%s", percentage, usb ? (charging ? " (CHG)" : " (FULL)") : "");
         } else {
             snprintf(str, sizeof(str), "%5.2fv", voltage);

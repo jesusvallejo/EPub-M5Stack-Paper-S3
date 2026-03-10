@@ -61,17 +61,25 @@ bool Battery::is_charging() {
 double Battery::read_level() {
     gpio_set_level(BATTERY_EN_PIN, 1);
     vTaskDelay(pdMS_TO_TICKS(10)); 
-    
-    int adc_raw = 0;
-    adc_oneshot_read(adc_handle, ADC_CHAN_VBAT, &adc_raw);
+
+    // Average multiple samples to reduce ADC noise / reading fluctuation.
+    static constexpr int NUM_SAMPLES = 8;
+    int32_t sum = 0;
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        int adc_raw = 0;
+        adc_oneshot_read(adc_handle, ADC_CHAN_VBAT, &adc_raw);
+        sum += adc_raw;
+    }
+    int adc_avg = (int)(sum / NUM_SAMPLES);
+
     gpio_set_level(BATTERY_EN_PIN, 0);
 
     if (do_calibration) {
         int voltage_mv = 0;
-        adc_cali_raw_to_voltage(cali_handle, adc_raw, &voltage_mv);
+        adc_cali_raw_to_voltage(cali_handle, adc_avg, &voltage_mv);
         return (double)voltage_mv * 2.0 / 1000.0; 
     }
-    return (double(adc_raw) * 3.3 * 2.0) / 4095.0;
+    return (double(adc_avg) * 3.3 * 2.0) / 4095.0;
 }
 
 #else

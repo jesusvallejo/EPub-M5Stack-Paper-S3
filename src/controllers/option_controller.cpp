@@ -393,13 +393,13 @@ power_off_mode()
 #if defined(BOARD_TYPE_PAPER_S3)
 // Page 1: Navigation and connectivity
 static MenuViewer::MenuEntry menu[] = {
-  { MenuViewer::Icon::RETURN,      "Return to the e-books list",           CommonActions::return_to_last , true,  true  },
-  { MenuViewer::Icon::BOOK,        "Return to the last e-book being read", CommonActions::show_last_book , true,  true  },
-  { MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                     , true,  true  },
-  { MenuViewer::Icon::USB,         "USB SD-Card emulation",                usb_emulation_mode            , true,  true  },
-  { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off_mode                , true,  true  },
-  { MenuViewer::Icon::NEXT_MENU,   "More options",                         goto_next                     , true,  true  },
-  { MenuViewer::Icon::END_MENU,     nullptr,                               nullptr                       , false, false }
+  { MenuViewer::Icon::RETURN,      "Return",  CommonActions::return_to_last , false, true  },
+  { MenuViewer::Icon::BOOK,        "Last",    CommonActions::show_last_book , true,  true  },
+  { MenuViewer::Icon::WIFI,        "WiFi",    wifi_mode                     , true,  true  },
+  { MenuViewer::Icon::USB,         "USB",     usb_emulation_mode            , true,  true  },
+  { MenuViewer::Icon::POWEROFF,    "Power",   power_off_mode                , true,  true  },
+  { MenuViewer::Icon::NEXT_MENU,   "More",    goto_next                     , true,  true  },
+  { MenuViewer::Icon::END_MENU,     nullptr,   nullptr                       , false, false }
 };
 #else
 static MenuViewer::MenuEntry menu[] = {
@@ -452,18 +452,18 @@ static MenuViewer::MenuEntry sub_menu[] = {
   { MenuViewer::Icon::END_MENU,       nullptr,                               nullptr                          , false, false }
 };
 #elif defined(BOARD_TYPE_PAPER_S3)
-// Page 2: Settings and advanced (up to 7 icons at 77 px pitch)
+// Page 2: Settings and advanced – max 6 icons.
 static MenuViewer::MenuEntry sub_menu[] = {
-  { MenuViewer::Icon::PREV_MENU,   "Back to main menu",                    goto_prev                        , true,  true  },
-  { MenuViewer::Icon::RETURN,      "Return to the e-books list",           CommonActions::return_to_last    , true,  true  },
-  { MenuViewer::Icon::MAIN_PARAMS, "Main parameters",                      main_parameters                  , true,  true  },
-  { MenuViewer::Icon::FONT_PARAMS, "Default e-books parameters",           default_parameters               , true,  true  },
+  { MenuViewer::Icon::RETURN,      "Return",  CommonActions::return_to_last    , false, true  },  // hidden, used for tap-outside
+  { MenuViewer::Icon::PREV_MENU,   "Back",   goto_prev                        , true,  true  },
+  { MenuViewer::Icon::MAIN_PARAMS, "Set",    main_parameters                  , true,  true  },
+  { MenuViewer::Icon::FONT_PARAMS, "Font",   default_parameters               , true,  true  },
   #if DATE_TIME_RTC
-  { MenuViewer::Icon::NTP_CLOCK,   "Retrieve Date/Time from Time Server",  ntp_clock_adjust                 , true,  true  },
+  { MenuViewer::Icon::NTP_CLOCK,   "NTP",    ntp_clock_adjust                 , true,  true  },
   #endif
-  { MenuViewer::Icon::CLR_HISTORY, "Clear e-books' read history",          init_nvs                         , true,  true  },
-  { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off_mode                   , true,  true  },
-  { MenuViewer::Icon::END_MENU,     nullptr,                               nullptr                          , false, false }
+  { MenuViewer::Icon::CLR_HISTORY, "Hist",   init_nvs                         , true,  true  },
+  { MenuViewer::Icon::POWEROFF,    "Power",  power_off_mode                   , true,  true  },
+  { MenuViewer::Icon::END_MENU,     nullptr,  nullptr                          , false, false }
 };
 #endif
 

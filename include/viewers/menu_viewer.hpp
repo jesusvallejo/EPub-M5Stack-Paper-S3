@@ -65,6 +65,10 @@ class MenuViewer
     uint16_t icon_ypos,
              text_ypos;
 
+    // Paper S3: function called when the user taps outside the menu icon row.
+    // Auto-discovered from the menu array (RETURN → PREV_MENU fallback).
+    void (*tap_outside_func)() = nullptr;
+
     #if (INKPLATE_6PLUS || TOUCH_TRIAL)
       bool    hint_shown;
       uint8_t find_index(uint16_t x, uint16_t y);

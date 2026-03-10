@@ -81,18 +81,67 @@ void MenuViewer::show(MenuEntry * the_menu, uint8_t entry_index, bool clear_scre
 
   menu = the_menu;
 
+  // Paper S3: derive the outside-tap handler from the menu itself.
+  // Always look for a hidden RETURN entry — tapping outside always closes.
+  #if defined(BOARD_TYPE_PAPER_S3)
+    tap_outside_func = nullptr;
+    for (uint8_t i = 0; i < MAX_MENU_ENTRY && menu[i].icon != Icon::END_MENU; i++) {
+      if (menu[i].icon == Icon::RETURN && menu[i].func != nullptr) {
+        tap_outside_func = menu[i].func;
+        break;
+      }
+    }
+  #endif
+
   uint8_t idx = 0;
 
   Pos pos(ICONS_LEFT_OFFSET, icon_ypos);
-  
+
+  // For Paper S3: distribute visible icons equally across the screen width.
+  // Pre-count visible entries, then compute the inter-icon step so that the
+  // first icon has a left margin and the last has an equal right margin.
+  // Maximum 6 icons per page; menus with more must use NEXT_MENU pagination.
+  #if defined(BOARD_TYPE_PAPER_S3)
+    static constexpr int16_t S3_MARGIN = 20;
+    int16_t s3_step;
+    {
+      uint8_t n_vis = 0;
+      for (uint8_t i = 0; i < MAX_MENU_ENTRY && menu[i].icon != Icon::END_MENU; i++) {
+        if (menu[i].visible) n_vis++;
+      }
+      if (n_vis > 6) n_vis = 6; // safety: spacing is defined for at most 6
+      // Subtract the icon's own advance width so the right edge of the last
+      // icon aligns with (screen_width - S3_MARGIN) instead of overflowing.
+      int16_t icon_w = (icon != nullptr) ? (int16_t)icon->advance : (int16_t)ICON_SIZE;
+      s3_step = (n_vis > 1) ? (int16_t)((Screen::get_width() - 2 * S3_MARGIN - icon_w) / (n_vis - 1)) : 0;
+      pos.x   = S3_MARGIN;
+    }
+    uint8_t s3_rendered = 0;
+  #endif
+
   while ((idx < MAX_MENU_ENTRY) && (menu[idx].icon != Icon::END_MENU)) {
 
     if (menu[idx].visible) {
+      #if defined(BOARD_TYPE_PAPER_S3)
+        // Hard-cap rendering at 6; any extra entries are recorded as invisible.
+        if (s3_rendered >= 6) {
+          entry_locs[idx].pos.x = -1;
+          entry_locs[idx].pos.y = -1;
+          idx++;
+          continue;
+        }
+        s3_rendered++;
+      #endif
+
       char ch = icon_char[(int)menu[idx].icon];
       Font::Glyph * glyph;
       glyph = font->get_glyph(ch, ICON_SIZE);
 
+      // NEXT_MENU fixed right-edge override is not needed for Paper S3:
+      // equal spacing naturally places the last icon at the right margin.
+      #if !defined(BOARD_TYPE_PAPER_S3)
       if (menu[idx].icon == Icon::NEXT_MENU) pos.x = Screen::get_width() - NEXT_MENU_RIGHT_OFFSET;
+      #endif
 
       if (glyph == nullptr) {
         entry_locs[idx].pos = pos;
@@ -120,7 +169,11 @@ void MenuViewer::show(MenuEntry * the_menu, uint8_t entry_index, bool clear_scre
       }
       #endif
 
-      pos.x += SPACE_BETWEEN_ICONS;
+      #if defined(BOARD_TYPE_PAPER_S3)
+        pos.x += s3_step;
+      #else
+        pos.x += SPACE_BETWEEN_ICONS;
+      #endif
 
       // std::cout << "[" 
       //           << entry_locs[idx].pos.x 
@@ -315,6 +368,13 @@ MenuViewer::event(const EventMgr::Event & event)
 
       case EventMgr::EventKind::TAP:
         current_entry_index = find_index(event.x, event.y);
+        #if defined(BOARD_TYPE_PAPER_S3)
+        if (current_entry_index > max_index) {
+          // Tap outside the icon row — treat as "return"
+          if (tap_outside_func) tap_outside_func();
+          return false;
+        }
+        #endif
         if (current_entry_index <= max_index) {
           if (menu[current_entry_index].func != nullptr) {
             if (menu[current_entry_index].highlight) {

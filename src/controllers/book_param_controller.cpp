@@ -172,26 +172,29 @@ power_off()
   static void goto_prev();
   static void usb_emulation_mode();
 
+  // Main menu: max 6 icons regardless of TOC visibility.
+  // REVERT lives in the sub-menu so that the main page never exceeds 6 entries
+  // even when the TOC icon is visible.
   static MenuViewer::MenuEntry menu[] = {
-    { MenuViewer::Icon::RETURN,      "Return to the e-books reader",         CommonActions::return_to_last, true , true },
-    { MenuViewer::Icon::TOC,         "Table of Content",                     toc_ctrl                     , false, true },
-    { MenuViewer::Icon::BOOK_LIST,   "E-Books list",                         books_list                   , true , true },
-    { MenuViewer::Icon::FONT_PARAMS, "Current e-book parameters",            book_parameters              , true , true },
-    { MenuViewer::Icon::REVERT,      "Revert e-book parameters to "
-                                     "default values",                       revert_to_defaults           , true , true },
-    { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off                    , true , true },
-    { MenuViewer::Icon::NEXT_MENU,   "More options",                         goto_next                    , true , true },
-    { MenuViewer::Icon::END_MENU,    nullptr,                                nullptr                      , false, true }
+    { MenuViewer::Icon::RETURN,      "Return",   CommonActions::return_to_last, false, true },
+    { MenuViewer::Icon::TOC,         "TOC",      toc_ctrl                     , false, true },
+    { MenuViewer::Icon::BOOK_LIST,   "Books",    books_list                   , true , true },
+    { MenuViewer::Icon::FONT_PARAMS, "Font",     book_parameters              , true , true },
+    { MenuViewer::Icon::POWEROFF,    "Power",    power_off                    , true , true },
+    { MenuViewer::Icon::NEXT_MENU,   "More",     goto_next                    , true , true },
+    { MenuViewer::Icon::END_MENU,    nullptr,    nullptr                      , false, true }
   };
 
+  // Sub-menu: max 6 visible icons. Hidden RETURN used for tap-outside-to-close.
   static MenuViewer::MenuEntry sub_menu[] = {
-    { MenuViewer::Icon::PREV_MENU,   "Back to previous options",             goto_prev                    , true , true },
-    { MenuViewer::Icon::RETURN,      "Return to the e-books reader",         CommonActions::return_to_last, true , true },
-    { MenuViewer::Icon::DELETE,      "Delete the current e-book",            delete_book                  , true , true },
-    { MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                    , true , true },
-    { MenuViewer::Icon::USB,         "USB SD-Card emulation",                usb_emulation_mode           , true , true },
-    { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off                    , true , true },
-    { MenuViewer::Icon::END_MENU,    nullptr,                                nullptr                      , false, true }
+    { MenuViewer::Icon::RETURN,      "Return",   CommonActions::return_to_last, false, true },  // hidden, used for tap-outside
+    { MenuViewer::Icon::PREV_MENU,   "Back",     goto_prev                    , true , true },
+    { MenuViewer::Icon::REVERT,      "Revert",   revert_to_defaults           , true , true },
+    { MenuViewer::Icon::DELETE,      "Delete",   delete_book                  , true , true },
+    { MenuViewer::Icon::WIFI,        "WiFi",     wifi_mode                    , true , true },
+    { MenuViewer::Icon::USB,         "USB",      usb_emulation_mode           , true , true },
+    { MenuViewer::Icon::POWEROFF,    "Power",    power_off                    , true , true },
+    { MenuViewer::Icon::END_MENU,    nullptr,    nullptr                      , false, true }
   };
 
   static void
