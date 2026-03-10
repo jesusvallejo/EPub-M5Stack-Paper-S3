@@ -1,0 +1,114 @@
+// Copyright (c) 2024
+//
+// MIT License. Look at file licenses.txt for details.
+
+#pragma once
+#include "global.hpp"
+
+#include "controllers/event_mgr.hpp"
+#include "models/opds.hpp"
+
+#include <vector>
+#include <string>
+
+/**
+ * @brief OPDS catalog browser and downloader
+ *
+ * State machine:
+ *
+ *   IDLE
+ *    │ enter()
+ *    ▼
+ *   CONNECTING  (WiFi start)
+ *    │ success
+ *    ▼
+ *   FETCHING    (HTTP catalog download)
+ *    │ success
+ *    ▼
+ *   SHOWING_LIST◄─────────── CONFIRM_DOWNLOAD (Cancel)
+ *    │ tap on entry
+ *    ▼
+ *   CONFIRM_DOWNLOAD
+ *    │ OK
+ *    ▼
+ *   DOWNLOADING
+ *    │ complete
+ *    ▼
+ *   DONE        (tap any → reboot)
+ *
+ *   Any step on error → ERROR (tap any → return_to_last)
+ */
+class OPDSController
+{
+  public:
+    OPDSController() : state(State::IDLE) {}
+
+    void enter();
+    void leave(bool going_to_deep_sleep = false);
+    void input_event(const EventMgr::Event & event);
+
+  private:
+    static constexpr char const * TAG = "OPDSCtrl";
+
+    // -----------------------------------------------------------------------
+    // Layout constants
+    // -----------------------------------------------------------------------
+    static const int16_t TITLE_FONT_SIZE    =  14;
+    static const int16_t ENTRY_FONT_SIZE    =  11;
+    static const int16_t AUTHOR_FONT_SIZE   =   9;
+    static const int16_t TITLE_YPOS         =  25;
+    static const int16_t FIRST_ENTRY_YPOS   =  70;
+    static const int16_t ENTRY_HEIGHT       =  38; ///< px per catalog entry (title + author)
+    static const int16_t ENTRY_MARGIN_LEFT  =  15;
+    static const int16_t FOOTER_RESERVE     =  60; ///< px reserved at the bottom for nav hints
+
+    // Progress-bar drawing
+    static const int16_t PROGBAR_Y          = 480; ///< Centre-screen Y for progress bar
+    static const int16_t PROGBAR_H          =  28;
+    static const int16_t PROGBAR_MARGIN     =  40; ///< Left/right margin for the bar
+
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    enum class State { IDLE, CONNECTING, FETCHING,
+                       SHOWING_LIST, CONFIRM_DOWNLOAD, DOWNLOADING,
+                       DONE, ERROR };
+
+    State state;
+
+    std::vector<OPDSEntry> entries;
+    int  current_page;
+    int  entries_per_page;
+    int  selected_idx;   ///< Index into entries[] of the book to download
+
+    // Download progress tracking
+    int64_t  dl_total_bytes;       ///< Content-Length (-1 if unknown)
+    int64_t  dl_bytes_done;
+    int      dl_last_pct;          ///< Last percentage shown (to throttle redraws)
+    bool     dl_cancelled;
+
+    char     last_error[128];
+
+    // -----------------------------------------------------------------------
+    // Helper methods
+    // -----------------------------------------------------------------------
+    int  pages() const;
+
+    void connect_and_fetch();
+    void start_download(int idx);
+    void do_return();
+
+    void show_connecting();
+    void show_fetching();
+    void show_list();
+    void show_confirm();
+    void show_progress(int64_t done, int64_t total);
+    void show_done();
+    void show_error();
+};
+
+#if __OPDS_CONTROLLER__
+  OPDSController opds_controller;
+#else
+  extern OPDSController opds_controller;
+#endif

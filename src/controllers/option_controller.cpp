@@ -11,6 +11,7 @@
 #include "controllers/ntp.hpp"
 #include "controllers/clock.hpp"
 #include "controllers/wifi.hpp"
+#include "controllers/opds_controller.hpp"
 #include "viewers/menu_viewer.hpp"
 #include "viewers/msg_viewer.hpp"
 #include "viewers/form_viewer.hpp"
@@ -390,6 +391,12 @@ power_off_mode()
 // IMPORTANT!!!
 // The first (menu[0]) and the last menu entry (the one before END_MENU) MUST ALWAYS BE VISIBLE!!!
 
+static void
+opds_mode()
+{
+  app_controller.set_controller(AppController::Ctrl::OPDS);
+}
+
 #if defined(BOARD_TYPE_PAPER_S3)
 // Page 1: Navigation and connectivity
 static MenuViewer::MenuEntry menu[] = {
@@ -397,6 +404,7 @@ static MenuViewer::MenuEntry menu[] = {
   { MenuViewer::Icon::BOOK,        "Last",    CommonActions::show_last_book , true,  true  },
   { MenuViewer::Icon::WIFI,        "WiFi",    wifi_mode                     , true,  true  },
   { MenuViewer::Icon::USB,         "USB",     usb_emulation_mode            , true,  true  },
+  { MenuViewer::Icon::OPDS,        "OPDS",    opds_mode                     , true,  true  },
   { MenuViewer::Icon::POWEROFF,    "Power",   power_off_mode                , true,  true  },
   { MenuViewer::Icon::NEXT_MENU,   "More",    goto_next                     , true,  true  },
   { MenuViewer::Icon::END_MENU,     nullptr,   nullptr                       , false, false }

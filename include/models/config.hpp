@@ -17,21 +17,22 @@ enum class ConfigIdent {
     TIME_ZONE,
   #endif
   #if INKPLATE_6PLUS
-    CALIB_A, CALIB_B, CALIB_C, CALIB_D, CALIB_E, CALIB_F, CALIB_DIVIDER
+    CALIB_A, CALIB_B, CALIB_C, CALIB_D, CALIB_E, CALIB_F, CALIB_DIVIDER,
   #endif
+  OPDS_URL, OPDS_USER, OPDS_PWD
 };
 
 #if INKPLATE_6PLUS
   #if DATE_TIME_RTC
-    typedef ConfigBase<ConfigIdent, 26> Config;
+    typedef ConfigBase<ConfigIdent, 29> Config;
   #else
-    typedef ConfigBase<ConfigIdent, 23> Config;
+    typedef ConfigBase<ConfigIdent, 26> Config;
   #endif
 #else
   #if DATE_TIME_RTC
-    typedef ConfigBase<ConfigIdent, 19> Config;
+    typedef ConfigBase<ConfigIdent, 22> Config;
   #else
-    typedef ConfigBase<ConfigIdent, 16> Config;
+    typedef ConfigBase<ConfigIdent, 19> Config;
   #endif
 #endif
 
@@ -62,6 +63,9 @@ enum class ConfigIdent {
     static char   ntp_server[32];
     static char   time_zone[32];
   #endif
+  static char     opds_url[128];
+  static char     opds_user[32];
+  static char     opds_pwd[32];
   #if INKPLATE_6PLUS
     static int64_t calib_a, calib_b, calib_c, calib_d, calib_e, calib_f, calib_divider;
     static const int64_t default_calib             =  0;
@@ -120,6 +124,9 @@ enum class ConfigIdent {
     { Config::Ident::CALIB_F,            Config::EntryType::INT64,   "calib_f",           &calib_f,            &default_calib,              0 },
     { Config::Ident::CALIB_DIVIDER,      Config::EntryType::INT64,   "calib_divider",     &calib_divider,      &default_calib,              0 },
     #endif
+    { Config::Ident::OPDS_URL,           Config::EntryType::STRING,  "opds_url",          opds_url,            "",                        128 },
+    { Config::Ident::OPDS_USER,          Config::EntryType::STRING,  "opds_user",         opds_user,           "",                         32 },
+    { Config::Ident::OPDS_PWD,           Config::EntryType::STRING,  "opds_pwd",          opds_pwd,            "",                         32 },
   }};
 
   // Config config(conf, CONFIG_FILE);

@@ -29,6 +29,9 @@
 #      show_rtc
 #      ntp_server
 #      tz
+#      opds_url    (OPDS catalog URL, e.g. http://192.168.1.10:8080/opds)
+#      opds_user   (OPDS username, leave empty for anonymous access)
+#      opds_pwd    (OPDS password)
 # ---
 
 version = 1
@@ -50,3 +53,6 @@ dir_view = 1
 show_rtc = 0
 ntp_server = "pool.ntp.org"
 tz = "CET-1CEST,M3.5.0,M10.5.0/3"
+opds_url = ""
+opds_user = ""
+opds_pwd = ""

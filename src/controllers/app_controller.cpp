@@ -10,6 +10,7 @@
 #include "controllers/book_param_controller.hpp"
 #include "controllers/option_controller.hpp"
 #include "controllers/toc_controller.hpp"
+#include "controllers/opds_controller.hpp"
 #include "controllers/event_mgr.hpp"
 
 #if INKPLATE_6PLUS
@@ -70,6 +71,7 @@ void AppController::launch()
       case Ctrl::PARAM:  book_param_controller.leave(); break;
       case Ctrl::OPTION:     option_controller.leave(); break;
       case Ctrl::TOC:           toc_controller.leave(); break;
+      case Ctrl::OPDS:         opds_controller.leave(); break;
       case Ctrl::NONE:
       case Ctrl::LAST:                                  break;
     }
@@ -92,6 +94,7 @@ void AppController::launch()
       case Ctrl::PARAM:  book_param_controller.enter(); break;
       case Ctrl::OPTION:     option_controller.enter(); break;
       case Ctrl::TOC:           toc_controller.enter(); break;
+      case Ctrl::OPDS:         opds_controller.enter(); break;
       case Ctrl::NONE:
       case Ctrl::LAST:                                  break;
     }
@@ -127,6 +130,7 @@ AppController::input_event(const EventMgr::Event & event)
     case Ctrl::PARAM:  book_param_controller.input_event(event); break;
     case Ctrl::OPTION:     option_controller.input_event(event); break;
     case Ctrl::TOC:           toc_controller.input_event(event); break;
+    case Ctrl::OPDS:         opds_controller.input_event(event); break;
     case Ctrl::NONE:
     case Ctrl::LAST:                                             break;
   }
@@ -148,6 +152,7 @@ AppController::going_to_deep_sleep()
     case Ctrl::PARAM:  book_param_controller.leave(true); break;
     case Ctrl::OPTION:     option_controller.leave(true); break;
     case Ctrl::TOC:           toc_controller.leave(true); break;
+    case Ctrl::OPDS:         opds_controller.leave(true); break;
     case Ctrl::NONE:
     case Ctrl::LAST:                                      break;
   }
