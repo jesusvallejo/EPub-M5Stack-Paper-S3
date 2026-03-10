@@ -37,10 +37,10 @@ class MenuViewer
 
     #if defined(BOARD_TYPE_PAPER_S3)
       static const int16_t ICON_SIZE             = 24;
-      static const int16_t CAPTION_SIZE          = 10;
+      static const int16_t CAPTION_SIZE          = 9;
       // 81 px pitch allows up to 7 icons in 540 px (25 + 6×81 + 24 = 535)
       static const int16_t SPACE_BETWEEN_ICONS   = 81;
-      static const int16_t ICONS_LEFT_OFFSET     = 25;
+      static const int16_t ICONS_LEFT_OFFSET     = 15;
       static const int16_t NEXT_MENU_RIGHT_OFFSET = 48;
     #elif INKPLATE_6PLUS
       static const int16_t ICON_SIZE             = 18;

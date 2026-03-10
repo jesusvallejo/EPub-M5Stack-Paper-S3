@@ -103,11 +103,23 @@ void MenuViewer::show(MenuEntry * the_menu, uint8_t entry_index, bool clear_scre
         entry_locs[idx].pos.y = pos.y + glyph->yoff;
         entry_locs[idx].dim   = glyph->dim;
       }
-      // page.put_highlight(
-      //   Dim(entry_locs[idx].dim.width + 30, entry_locs[idx].pos.y + entry_locs[idx].dim.height + 15), 
-      //   Pos(entry_locs[idx].pos.x - 15, 0));
-
       page.put_char_at(ch, pos, fmt);
+
+      #if defined(BOARD_TYPE_PAPER_S3)
+      if (menu[idx].caption != nullptr && entry_locs[idx].dim.width > 0) {
+        Page::Format fmt_lbl = fmt;
+        fmt_lbl.font_index   = 1;
+        fmt_lbl.font_size    = CAPTION_SIZE;
+        fmt_lbl.align        = CSS::Align::CENTER;
+        uint16_t lbl_cx = entry_locs[idx].pos.x + (entry_locs[idx].dim.width >> 1);
+        // Use only the first word so labels never overflow into adjacent icons
+        std::string lbl(menu[idx].caption);
+        size_t sp = lbl.find(' ');
+        if (sp != std::string::npos) lbl = lbl.substr(0, sp);
+        page.put_str_at(lbl, Pos(lbl_cx, text_ypos), fmt_lbl);
+      }
+      #endif
+
       pos.x += SPACE_BETWEEN_ICONS;
 
       // std::cout << "[" 
@@ -146,16 +158,22 @@ void MenuViewer::show(MenuEntry * the_menu, uint8_t entry_index, bool clear_scre
   fmt.font_size  = CAPTION_SIZE;
   
   #if (INKPLATE_6PLUS || TOUCH_TRIAL)
+    #if !defined(BOARD_TYPE_PAPER_S3)
     page.put_str_at(TOUCH_AND_HOLD_STR, Pos{ 10, text_ypos }, fmt);
+    #endif
     hint_shown = false;
   #else
     std::string txt = menu[entry_index].caption; 
     page.put_str_at(txt, Pos{ 10, text_ypos }, fmt);
   #endif
 
+  #if defined(BOARD_TYPE_PAPER_S3)
+  page.put_highlight(Dim(Screen::get_width(), 2), Pos(0, region_height - 2));
+  #else
   page.put_highlight(
     Dim(Screen::get_width() - 20, 3), 
     Pos(10, region_height - 12));
+  #endif
 
   ScreenBottom::show();
 
@@ -222,8 +240,10 @@ MenuViewer::clear_highlight()
         Dim(entry_locs[current_entry_index].dim.width + 8, entry_locs[current_entry_index].dim.height + 8), 
         Pos(entry_locs[current_entry_index].pos.x - 4,     entry_locs[current_entry_index].pos.y - 4     ));
 
+      #if !defined(BOARD_TYPE_PAPER_S3)
       page.clear_region(Dim(Screen::get_width(), text_height), Pos(0, text_ypos - line_height));
       page.put_str_at(TOUCH_AND_HOLD_STR, Pos{ 10, text_ypos }, fmt);
+      #endif
     }
 
     page.paint(false);
@@ -265,6 +285,12 @@ MenuViewer::event(const EventMgr::Event & event)
         if (current_entry_index <= max_index) {
           page.start(fmt);
 
+          #if defined(BOARD_TYPE_PAPER_S3)
+          // Labels already visible — just highlight the icon on hold
+          page.put_highlight(
+            Dim(entry_locs[current_entry_index].dim.width  + 8, entry_locs[current_entry_index].dim.height + 8),
+            Pos(entry_locs[current_entry_index].pos.x      - 4, entry_locs[current_entry_index].pos.y - 4));
+          #else
           fmt.font_index =  1;
           fmt.font_size  = CAPTION_SIZE;
         
@@ -272,6 +298,7 @@ MenuViewer::event(const EventMgr::Event & event)
 
           std::string txt = menu[current_entry_index].caption; 
           page.put_str_at(txt, Pos{ 10, text_ypos }, fmt);
+          #endif
           hint_shown = true;
 
           page.paint(false);
@@ -293,6 +320,7 @@ MenuViewer::event(const EventMgr::Event & event)
             if (menu[current_entry_index].highlight) {
               page.start(fmt);
 
+              #if !defined(BOARD_TYPE_PAPER_S3)
               fmt.font_index = 1;
               fmt.font_size  = CAPTION_SIZE;
             
@@ -300,6 +328,7 @@ MenuViewer::event(const EventMgr::Event & event)
 
               std::string txt = menu[current_entry_index].caption; 
               page.put_str_at(txt, Pos{ 10, text_ypos }, fmt);
+              #endif
               hint_shown = true;
 
               page.put_highlight(
