@@ -168,9 +168,22 @@ JPegImage::JPegImage(std::string filename, Dim max, bool load_bitmap) : Image(fi
     return;
   }
 
-  JPEGDEC jpeg;
+  // Allocate JPEGDEC in internal RAM. The task stack is in PSRAM
+  // (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY + 60 KB stack), so a stack-local
+  // JPEGDEC would put ucFileBuf in PSRAM. JPEGDEC advances its bit-buffer pointer
+  // by arbitrary byte offsets, causing unaligned 32-bit PSRAM reads (EXCCAUSE=3).
+  JPEGDEC * const jpeg_ptr = static_cast<JPEGDEC *>(
+      heap_caps_malloc(sizeof(JPEGDEC), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  if (!jpeg_ptr) {
+    LOG_E("JPEGDEC: insufficient internal RAM (%u bytes)", sizeof(JPEGDEC));
+    free(jpg_data);
+    return;
+  }
+  JPEGDEC &jpeg = *jpeg_ptr;
+
   if (!jpeg.openRAM((uint8_t *)jpg_data, (int)jpg_size, JPEGDraw)) {
     LOG_E("JPEGDEC open failed. Error: %d", jpeg.getLastError());
+    heap_caps_free(jpeg_ptr);
     free(jpg_data);
     return;
   }
@@ -195,6 +208,7 @@ JPegImage::JPegImage(std::string filename, Dim max, bool load_bitmap) : Image(fi
       image_data.bitmap = (uint8_t *)allocate(out_w * out_h);
       if (image_data.bitmap == nullptr) {
         jpeg.close();
+        heap_caps_free(jpeg_ptr);
         free(jpg_data);
         return;
       }
@@ -202,6 +216,7 @@ JPegImage::JPegImage(std::string filename, Dim max, bool load_bitmap) : Image(fi
     else {
       image_data.dim = Dim(out_w, out_h);
       jpeg.close();
+      heap_caps_free(jpeg_ptr);
       free(jpg_data);
       return;
     }
@@ -226,6 +241,7 @@ JPegImage::JPegImage(std::string filename, Dim max, bool load_bitmap) : Image(fi
     }
 
     jpeg.close();
+    heap_caps_free(jpeg_ptr);
     free(jpg_data);
 
   #else
