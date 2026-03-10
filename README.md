@@ -1,17 +1,35 @@
 # EPub-M5Stack-Paper-S3 (fork of EPub-InkPlate)
 
-This repository is a fork of https://github.com/turgu1/EPub-InkPlate, ported to support the **M5Stack Paper S3** (ESP32-S3).
+> **⚠️ Fork scope notice**: This repository is exclusively maintained for the **M5Stack Paper S3**. Inkplate device compatibility is **not a goal** and is not tested or preserved. If you need Inkplate support, use the upstream project instead.
 
-- **Upstream**: https://github.com/turgu1/EPub-InkPlate
-- **This fork**: https://github.com/juicecultus/EPub-M5Stack-Paper-S3
+This is a fork of [EPub-InkPlate](https://github.com/turgu1/EPub-InkPlate) by Guy Turcotte, ported and adapted to run on the **M5Stack Paper S3** (ESP32-S3, 8 MB PSRAM, 960×540 e-paper).
 
-### Quick start (M5Stack Paper S3)
+- **Original**: https://github.com/turgu1/EPub-InkPlate
+- **Upstream**: https://github.com/juicecultus/EPub-M5Stack-Paper-S3
+- **This fork**: https://github.com/jesusvallejo/EPub-M5Stack-Paper-S3
+
+---
+
+## What this fork changes
+
+- **Target hardware**: M5Stack Paper S3 only (`paper_s3` environment in `platformio.ini`). All Inkplate-specific board targets still exist in the file but are not actively maintained.
+- **Display driver**: Uses [epdiy](https://github.com/vroland/epdiy) for the Paper S3 EPD panel instead of the Inkplate library.
+- **JPEG decoder**: Switched from TJPGD to [JPEGDEC](https://github.com/bitbank2/JPEGDEC) for the Paper S3 build, with a fix for progressive JPEG support on ESP32-S3 (see *Bug fixes* below).
+- **ESP-IDF version**: Updated to 5.5.0 (upstream targets 4.x).
+
+### Bug fixes applied in this fork
+
+- **Progressive JPEG crash (EXCCAUSE=3 / LoadStoreError)**: EPubs containing progressive JPEG images (SOF2 marker) caused a boot loop on the Paper S3. Root cause: `CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y` places the 60 KB task stack in PSRAM. A stack-allocated `JPEGDEC` object put its internal `ucFileBuf` bit-stream buffer in PSRAM; JPEGDEC advances the buffer pointer by arbitrary byte offsets, producing unaligned 32-bit reads (`MOTOLONG`) that fault on the ESP32-S3 Xtensa LX7 when the target is PSRAM. Fixed in `src/models/jpeg_image.cpp` by allocating `JPEGDEC` in internal RAM via `heap_caps_malloc(MALLOC_CAP_INTERNAL)`.
+
+---
+
+## Quick start (M5Stack Paper S3)
 
 ```bash
 git clone --recurse-submodules https://github.com/juicecultus/EPub-M5Stack-Paper-S3.git
 cd EPub-M5Stack-Paper-S3
 
-# (Optional safety) ensure submodules are initialized
+# Ensure submodules are initialized
 git submodule update --init --recursive
 
 # Build
@@ -23,59 +41,48 @@ pio run -e paper_s3 -t upload
 
 The PlatformIO environment for this device is `paper_s3` (see `platformio.ini`).
 
-## Last news
+## Last news (upstream)
 
-(Updated 2022.5.01)
+(Updated 2022.5.01) — upstream version 2.0.1
 
-Update to version 2.0.1
+- For Inkplate-6PLUS and Inkplate-10: The ESP-IDF-Inkplate library has been updated (v0.9.6) to support devices delivered without a second MCP chip onboard.
+- For all Inkplates: Now using ESP-IDF framework v4.3.2.
 
-- For Inkplate-6PLUS and Inkplate-10: The ESP-IDF-Inkplate library has been updated (v0.9.6) to support some of these devices to be delivered without a second MCP chip onboard. The presence of the second MCP is now dynamically detected by the software.
+## Known unresolved issue
 
-- For all Inkplates: Now using ESP-IDF framework v4.3.2
-
-## Unresolved issue
-
-[ ] A device reset may happen reading a book, and changing the current font as the background process is computing pages location. 
+[ ] A device reset may happen while reading a book and changing the current font as a background process computes page locations.
 
 ---
 
-This is an EPub reader for the e-Radionica made Inkplate devices.
+This is an EPub reader originally built for the e-Radionica Inkplate devices, adapted here for the M5Stack Paper S3.
 
-Here are the main characterics:
+Here are the main features (Paper S3 build):
 
-- TTF, and OTF embedded fonts support.
+- TTF and OTF embedded fonts support.
 - Normal, Bold, Italic, Bold+Italic face types.
-- Bitmap images dithering display (JPEG, PNG).
+- Bitmap images display — baseline and progressive JPEG, PNG.
 - EPub (V2, V3) book format subset.
-- UTF-8 characters (supplied fonts limited to latin1).
-- Inkplate tactile keys (single and double click to get six buttons).
+- UTF-8 characters (supplied fonts limited to Latin-1).
 - Screen orientation (portrait / landscape).
 - Left, center, right, and justify text alignments.
-- Font size.
-- Indentation.
-- Some basic parameters and options.
+- Font size and indentation.
 - Limited CSS formatting.
-- WiFi-based documents download (Web server based).
-- Battery state and power management (light, deep sleep, battery level display).
-- Table of content.
-- Multiple fonts choices selectable by the user.
-- Linear and matrix view of book list.
-- Real-Time clock.
-- Inkplate-6PLUS touch screen and backlit.
+- WiFi-based document download (web server).
+- Table of contents.
+- Multiple user-selectable fonts.
+- Linear and matrix book list view.
+- Real-time clock (BM8563).
 - Keeps location of the last 10 books being read.
 
-Some vidos are  available on YouTube:
+> Features that depend on Inkplate-specific hardware (tactile keys, Inkplate-6PLUS touch/backlit, battery management via Inkplate power IC) are not applicable to the Paper S3 build and may be stubbed or absent.
 
-- The first working version of the EPub-InkPlate application [Here](https://www.youtube.com/watch?v=VnTLMhEgsqA).
-- Demostration on the InkPlate-10 [Here](https://www.youtube.com/watch?v=qNAjbnEax8k).
-- Demonstration on the Inkplate-6PLUS [Here](https://www.youtube.com/watch?v=z1nvakbxiUQ).
+Upstream demo videos (Inkplate hardware, for reference only):
 
-Some pictures from the InkPlate-6 version:
+- The first working version of EPub-InkPlate [Here](https://www.youtube.com/watch?v=VnTLMhEgsqA).
+- InkPlate-10 demonstration [Here](https://www.youtube.com/watch?v=qNAjbnEax8k).
+- Inkplate-6PLUS demonstration [Here](https://www.youtube.com/watch?v=z1nvakbxiUQ).
 
-<img src="doc/pictures/IMG_1377.JPG" alt="picture" width="300"/><img src="doc/pictures/IMG_1378.JPG" alt="picture" width="300"/>
-<img src="doc/pictures/IMG_1381.JPG" alt="picture" width="300"/>
-
-Some pictures from the Linux version:
+Some pictures from the Linux version of the upstream project:
 
 <img src="doc/pictures/books_select.png" alt="drawing" width="300"/><img src="doc/pictures/book_page.png" alt="drawing" width="300"/>
 
@@ -121,12 +128,13 @@ After that, all fonts in the `subset-latin1/otf` folder must be copied back in t
 
 All source code is located in various folders:
 
-- Source code used by both Linux and InkPlate is located in the `include` and `src` folders
-- Source code in support of Linux only is located in the `lib_linux` folder
-- Source code in support of the InkPlate device (ESP32) only are located in the `lib_esp32` folder
-- The FreeType library for ESP32 is in folder `lib_freetype`
+- Source code shared across targets is in `include` and `src`
+- Linux-only code is in `lib_linux`
+- ESP32 / Paper S3 code is in `lib_esp32` (includes epdiy and EPub_InkPlate)
+- The FreeType library for ESP32 is in `lib_freetype`
+- Local copies of JPEGDEC and PNGdec libraries are in `JPEGDEC/` and `PNGdec/`
 
-The file `platformio.ini` contains the configuration options required to compile both Linux and InkPlate applications.
+The file `platformio.ini` contains configuration for all environments. Only `paper_s3` is actively maintained in this fork.
 
 Note that source code located in folders `old` and `test` is not used. It will be deleted from the project when the application development will be completed.
 
@@ -148,9 +156,10 @@ The following are imported C header and source files, that implement some algori
 
   - `stb_image_resize.h` resize images larger/smaller 
 
-- [PNGLE](https://github.com/kikuchan/pngle) (For PNG Images) The EPub-Inkplate uses a modified version that is optimized for grayscale output instead of RGBA.
-- [MINIZ](https://github.com/kikuchan/pngle) (For Zip/PNG files and epub files decompress)
-- [TJPGD](http://elm-chan.org/fsw/tjpgd/00index.html) (For JPeg Images)
+- [PNGLE](https://github.com/kikuchan/pngle) (For PNG images) A modified version optimized for grayscale output instead of RGBA.
+- [MINIZ](https://github.com/richgel999/miniz) (For ZIP/PNG/epub decompression)
+- [TJPGD](http://elm-chan.org/fsw/tjpgd/00index.html) (For JPEG images — used on Inkplate builds)
+- [JPEGDEC](https://github.com/bitbank2/JPEGDEC) (For JPEG images — used on the Paper S3 build, supports progressive JPEG)
 
 The following libraries were used at first but replaced with counterparts:
 
