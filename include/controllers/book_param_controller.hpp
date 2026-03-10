@@ -17,6 +17,10 @@ class BookParamController
     bool delete_current_book;
     bool waiting_revert_confirm;
     bool waiting_wifi_confirm;
+    #if defined(BOARD_TYPE_PAPER_S3)
+      bool on_sub_menu;
+      bool waiting_usb_confirm;
+    #endif
 
   public:
     BookParamController() : 
@@ -24,7 +28,12 @@ class BookParamController
         wait_for_key_after_wifi(false),
             delete_current_book(false),
          waiting_revert_confirm(false),
-           waiting_wifi_confirm(false) { };
+           waiting_wifi_confirm(false)
+    #if defined(BOARD_TYPE_PAPER_S3)
+           ,on_sub_menu(false)
+           ,waiting_usb_confirm(false)
+    #endif
+    { };
 
     void    input_event(const EventMgr::Event & event);
     void          enter();
@@ -36,6 +45,10 @@ class BookParamController
     inline void       set_delete_current_book() { delete_current_book        = true; }
     inline void    set_waiting_revert_confirm() { waiting_revert_confirm     = true; }
     inline void      set_waiting_wifi_confirm() { waiting_wifi_confirm       = true; }
+    #if defined(BOARD_TYPE_PAPER_S3)
+    inline void            set_on_sub_menu(bool val) { on_sub_menu = val; }
+    inline void      set_waiting_usb_confirm() { waiting_usb_confirm = true; }
+    #endif
 };
 
 #if __BOOK_PARAM_CONTROLLER__

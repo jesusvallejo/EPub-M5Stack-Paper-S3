@@ -126,7 +126,7 @@ void MsgViewer::show(
         fmt.align       = CSS::Align::CENTER;
         fmt.font_size   =                  9;
         fmt.margin_left =                 10;
-        fmt.margin_top  =                200;
+        fmt.margin_top  =                300;
 
         page.set_limits(fmt);
         page.new_paragraph(fmt);

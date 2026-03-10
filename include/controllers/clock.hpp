@@ -6,6 +6,9 @@
 
 #if EPUB_INKPLATE_BUILD
   #include "inkplate_platform.hpp"
+  #if defined(BOARD_TYPE_PAPER_S3)
+    #include "bm8563.hpp"
+  #endif
 #endif
 
 #include "logging.hpp"
@@ -19,7 +22,15 @@ class Clock
 
   public:
     static void set_date_time(const time_t & tm) {
-      #if EPUB_INKPLATE_BUILD && !defined(BOARD_TYPE_PAPER_S3)
+      #if EPUB_INKPLATE_BUILD && defined(BOARD_TYPE_PAPER_S3)
+        // Write to the hardware BM8563 so time survives deep sleep.
+        bm8563.set_date_time(&tm);
+        // Also sync the ESP32 system clock for immediate use.
+        timeval tv;
+        tv.tv_sec = tm;
+        tv.tv_usec = 0;
+        settimeofday(&tv, nullptr);
+      #elif EPUB_INKPLATE_BUILD
         if (rtc.is_present()) {
           rtc.set_date_time(&tm);
         }
@@ -30,7 +41,6 @@ class Clock
           settimeofday(&tv, nullptr);
         }
       #else
-        // On Paper S3 (and non-Inkplate builds), just set system time.
         timeval tv;
         tv.tv_sec = tm;
         tv.tv_usec = 0;
@@ -39,7 +49,14 @@ class Clock
     }
 
     static void get_date_time(time_t & t) {
-      #if EPUB_INKPLATE_BUILD && !defined(BOARD_TYPE_PAPER_S3)
+      #if EPUB_INKPLATE_BUILD && defined(BOARD_TYPE_PAPER_S3)
+        // Prefer the BM8563 hardware clock; fall back to system time if
+        // the oscillator has not been set yet (VL flag, before first NTP sync).
+        if (!bm8563.get_date_time(&t)) {
+          LOG_D("BM8563 time invalid — using system clock");
+          time(&t);
+        }
+      #elif EPUB_INKPLATE_BUILD
         if (rtc.is_present()) {
           LOG_D("RTC chip is present");
           rtc.get_date_time(&t);
@@ -49,9 +66,8 @@ class Clock
           time(&t);
         }
       #else
-        // On Paper S3 (and non-Inkplate builds), just use system time.
         time(&t);
-      #endif        
+      #endif
     }
 };
 

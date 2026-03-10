@@ -32,8 +32,8 @@
 # ---
 
 version = 1
-wifi_ssid = "keepAway"
-wifi_pwd = "cometa1997"
+wifi_ssid = "*"
+wifi_pwd = "*"
 http_port = 80
 battery = 2
 timeout = 5

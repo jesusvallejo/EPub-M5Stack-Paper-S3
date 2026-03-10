@@ -18,7 +18,11 @@ class LinearBooksDirViewer : public BooksDirViewer
     static const int16_t AUTHOR_FONT           =  2;
     static const int16_t TITLE_FONT_SIZE       = 11;
     static const int16_t AUTHOR_FONT_SIZE      =  9;
+    #if defined(BOARD_TYPE_PAPER_S3)
+    static const int16_t FIRST_ENTRY_YPOS      = 90;
+    #else
     static const int16_t FIRST_ENTRY_YPOS      =  5;
+    #endif
     static const int16_t SPACE_BETWEEN_ENTRIES =  6;
     static const int16_t MAX_TITLE_SIZE        = 85;
 

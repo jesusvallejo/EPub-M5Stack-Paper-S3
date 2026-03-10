@@ -12,6 +12,7 @@
 
 #include "battery.hpp"
 #include "screen.hpp"
+#include "bm8563.hpp"
 
 #if EPUB_INKPLATE_BUILD
   #include "freertos/FreeRTOS.h"
@@ -20,6 +21,7 @@
   #include "driver/i2c.h"
   #include "esp_log.h"
   #include <cmath> 
+  #include <sys/time.h>
 #endif
 
 extern Battery battery; 
@@ -248,6 +250,21 @@ bool EventMgr::setup()
 
   i2c_param_config(PAPERS3_GT911_I2C_PORT, &conf);
   i2c_driver_install(PAPERS3_GT911_I2C_PORT, I2C_MODE_MASTER, 0, 0, 0);
+
+  // BM8563 RTC sits on the same I2C bus — initialise now that the driver is up.
+  bm8563.setup();
+  // If the oscillator has been running, sync the ESP32 system clock from the
+  // BM8563 so that time() calls are correct immediately (before any NTP sync).
+  if (bm8563.is_valid()) {
+    time_t rtc_time = 0;
+    if (bm8563.get_date_time(&rtc_time)) {
+      timeval tv;
+      tv.tv_sec  = rtc_time;
+      tv.tv_usec = 0;
+      settimeofday(&tv, nullptr);
+      ESP_LOGI("EventMgr", "System clock set from BM8563: %lld", (long long)rtc_time);
+    }
+  }
 
   uint8_t buf = 0;
   if (gt911_read_reg(0x14, 0x8140, &buf, 1) == ESP_OK) { gt911_addr = 0x14; gt911_ok = true; }

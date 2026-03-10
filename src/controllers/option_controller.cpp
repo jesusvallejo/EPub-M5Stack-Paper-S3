@@ -10,6 +10,7 @@
 #include "controllers/books_dir_controller.hpp"
 #include "controllers/ntp.hpp"
 #include "controllers/clock.hpp"
+#include "controllers/wifi.hpp"
 #include "viewers/menu_viewer.hpp"
 #include "viewers/msg_viewer.hpp"
 #include "viewers/form_viewer.hpp"
@@ -22,6 +23,8 @@
 
 #if EPUB_INKPLATE_BUILD
   #include "esp_system.h"
+  #include "freertos/FreeRTOS.h"
+  #include "freertos/task.h"
 #endif
 
 // static int8_t boolean_value;
@@ -323,25 +326,51 @@ power_off_mode()
     page_locs.abort_threads();
     epub.close_file();
 
+    // Free font caches before WiFi — matches what the web server confirm path
+    // does and is critical: WiFi DMA buffers need large contiguous heap blocks.
+    // Without this, heap fragmentation from active font caches causes the WiFi
+    // driver to silently time out during authentication (WIFI_REASON_AUTH_EXPIRE).
+    fonts.clear(true);
+    fonts.clear_glyph_caches();
+
     std::string ntp_server;
+    std::string wifi_ssid;
     config.get(Config::Ident::NTP_SERVER, ntp_server);
+    config.get(Config::Ident::SSID,       wifi_ssid);
 
-    msg_viewer.show(MsgViewer::MsgType::NTP_CLOCK, false, true, 
-      "Date/Time Retrival", 
-      "Retrieving Date and Time from NTP Server %s. Please wait.",
-      ntp_server.c_str());
+    // Prevent light sleep while WiFi is active.
+    event_mgr.set_stay_on(true);
 
+    // Show "connecting..." now that memory is freed and display is settled.
+    msg_viewer.show(MsgViewer::MsgType::NTP_CLOCK, false, true,
+      "Connecting to WiFi",
+      "Connecting to \"%s\"...\nFetching time from %s...",
+      wifi_ssid.c_str(), ntp_server.c_str());
+
+    // Brief yield so FreeRTOS tasks (touch, battery) can complete any pending
+    // I2C transactions before the WiFi driver spins up its high-priority task.
+    #if EPUB_INKPLATE_BUILD
+      vTaskDelay(pdMS_TO_TICKS(200));
+    #endif
+
+    // Let ntp handle the full wifi start/query/stop cycle.
+    // The IP address persists in the wifi object after stop().
     if (ntp.get_and_set_time()) {
-      time_t time;
-      Clock::get_date_time(time);
-      msg_viewer.show(MsgViewer::MsgType::NTP_CLOCK, true, true, 
-        "Date/Time Retrival Completed", 
-        "Local Time is %s. The device will now restart.", ctime(&time));
+      esp_ip4_addr_t ip = wifi.get_ip_address();
+      time_t t;
+      Clock::get_date_time(t);
+      msg_viewer.show(MsgViewer::MsgType::NTP_CLOCK, true, true,
+        "Date/Time Updated",
+        "WiFi: \"%s\"  (IP: " IPSTR ")\n\nLocal time: %s\nThe device will now restart.",
+        wifi_ssid.c_str(), IP2STR(&ip), ctime(&t));
     }
     else {
-      msg_viewer.show(MsgViewer::MsgType::NTP_CLOCK, true, true, 
-        "Date/Time Retrival Failed", 
-        "Unable to get Date/Time from NTP Server! The device will now restart.");
+      msg_viewer.show(MsgViewer::MsgType::NTP_CLOCK, true, true,
+        "Date/Time Retrival Failed",
+        "Could not connect to \"%s\" or reach NTP server.\n\n"
+        "Check SSID and password in config.txt.\n\n"
+        "The device will now restart.",
+        wifi_ssid.c_str());
     }
 
     option_controller.set_wait_for_key_after_wifi();
@@ -379,7 +408,7 @@ static MenuViewer::MenuEntry menu[] = {
   { MenuViewer::Icon::MAIN_PARAMS,   "Main parameters",                      main_parameters                  , true,  true  },
   { MenuViewer::Icon::FONT_PARAMS,   "Default e-books parameters",           default_parameters               , true,  true  },
   { MenuViewer::Icon::WIFI,          "WiFi Access to the e-books folder",    wifi_mode                        , true,  true  },
-  //{ MenuViewer::Icon::REFRESH,     "Refresh the e-books list",             CommonActions::refresh_books_dir , true,  true  },
+  { MenuViewer::Icon::REFRESH,     "Refresh the e-books list",             CommonActions::refresh_books_dir , true,  true  },
   #if !(INKPLATE_6PLUS || MENU_6PLUS)
     { MenuViewer::Icon::CLR_HISTORY, "Clear e-books' read history",          init_nvs                         , true,  true  },
     #if DATE_TIME_RTC
@@ -423,12 +452,15 @@ static MenuViewer::MenuEntry sub_menu[] = {
   { MenuViewer::Icon::END_MENU,       nullptr,                               nullptr                          , false, false }
 };
 #elif defined(BOARD_TYPE_PAPER_S3)
-// Page 2: Settings and advanced
+// Page 2: Settings and advanced (up to 7 icons at 77 px pitch)
 static MenuViewer::MenuEntry sub_menu[] = {
   { MenuViewer::Icon::PREV_MENU,   "Back to main menu",                    goto_prev                        , true,  true  },
   { MenuViewer::Icon::RETURN,      "Return to the e-books list",           CommonActions::return_to_last    , true,  true  },
   { MenuViewer::Icon::MAIN_PARAMS, "Main parameters",                      main_parameters                  , true,  true  },
   { MenuViewer::Icon::FONT_PARAMS, "Default e-books parameters",           default_parameters               , true,  true  },
+  #if DATE_TIME_RTC
+  { MenuViewer::Icon::NTP_CLOCK,   "Retrieve Date/Time from Time Server",  ntp_clock_adjust                 , true,  true  },
+  #endif
   { MenuViewer::Icon::CLR_HISTORY, "Clear e-books' read history",          init_nvs                         , true,  true  },
   { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off_mode                   , true,  true  },
   { MenuViewer::Icon::END_MENU,     nullptr,                               nullptr                          , false, false }

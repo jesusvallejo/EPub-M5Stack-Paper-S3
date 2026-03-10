@@ -26,6 +26,11 @@
   #include "esp.hpp"
   #include "soc/rtc.h"
 #endif
+#if defined(BOARD_TYPE_PAPER_S3)
+  #include "inkplate_platform.hpp"
+  #include "USBEmulation.hpp"
+  extern InkPlatePlatform & inkplate_platform;
+#endif
 
 #include <sys/stat.h>
 
@@ -162,19 +167,86 @@ power_off()
 // IMPORTANT!!
 // The first (menu[0]) and the last menu entry (the one before END_MENU) MUST ALWAYS BE VISIBLE!!!
 
-static MenuViewer::MenuEntry menu[10] = {
-  { MenuViewer::Icon::RETURN,      "Return to the e-books reader",         CommonActions::return_to_last, true , true },
-  { MenuViewer::Icon::TOC,         "Table of Content",                     toc_ctrl                     , false, true },
-  { MenuViewer::Icon::BOOK_LIST,   "E-Books list",                         books_list                   , true , true },
-  { MenuViewer::Icon::FONT_PARAMS, "Current e-book parameters",            book_parameters              , true , true },
-  { MenuViewer::Icon::REVERT,      "Revert e-book parameters to "
-                                   "default values",                       revert_to_defaults           , true , true },  
-  { MenuViewer::Icon::DELETE,      "Delete the current e-book",            delete_book                  , true , true },
-  { MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                    , true , true },
-  //{ MenuViewer::Icon::INFO,        "About the EPub-InkPlate application",  CommonActions::about         , true , true },
-  { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off                    , true , true },
-  { MenuViewer::Icon::END_MENU,    nullptr,                                nullptr                      , false, true }
-}; 
+#if defined(BOARD_TYPE_PAPER_S3)
+  static void goto_next();
+  static void goto_prev();
+  static void usb_emulation_mode();
+
+  static MenuViewer::MenuEntry menu[] = {
+    { MenuViewer::Icon::RETURN,      "Return to the e-books reader",         CommonActions::return_to_last, true , true },
+    { MenuViewer::Icon::TOC,         "Table of Content",                     toc_ctrl                     , false, true },
+    { MenuViewer::Icon::BOOK_LIST,   "E-Books list",                         books_list                   , true , true },
+    { MenuViewer::Icon::FONT_PARAMS, "Current e-book parameters",            book_parameters              , true , true },
+    { MenuViewer::Icon::REVERT,      "Revert e-book parameters to "
+                                     "default values",                       revert_to_defaults           , true , true },
+    { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off                    , true , true },
+    { MenuViewer::Icon::NEXT_MENU,   "More options",                         goto_next                    , true , true },
+    { MenuViewer::Icon::END_MENU,    nullptr,                                nullptr                      , false, true }
+  };
+
+  static MenuViewer::MenuEntry sub_menu[] = {
+    { MenuViewer::Icon::PREV_MENU,   "Back to previous options",             goto_prev                    , true , true },
+    { MenuViewer::Icon::RETURN,      "Return to the e-books reader",         CommonActions::return_to_last, true , true },
+    { MenuViewer::Icon::DELETE,      "Delete the current e-book",            delete_book                  , true , true },
+    { MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                    , true , true },
+    { MenuViewer::Icon::USB,         "USB SD-Card emulation",                usb_emulation_mode           , true , true },
+    { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off                    , true , true },
+    { MenuViewer::Icon::END_MENU,    nullptr,                                nullptr                      , false, true }
+  };
+
+  static void
+  goto_next()
+  {
+    book_param_controller.set_on_sub_menu(true);
+    menu_viewer.show(sub_menu);
+  }
+
+  static void
+  goto_prev()
+  {
+    book_param_controller.set_on_sub_menu(false);
+    menu_viewer.show(menu);
+  }
+
+  static void
+  usb_emulation_mode()
+  {
+    static const char* TAG = "BKPAR_CTRL";
+    sdmmc_card_t* card = inkplate_platform.get_sd_card();
+    if (!card) {
+      LOG_E("No SD Card detected. Cannot enter USB mode.");
+      msg_viewer.show(
+          MsgViewer::MsgType::ALERT,
+          false, true,
+          "USB Drive Mode",
+          "No SD card detected. Please insert an SD card and try again.");
+      return;
+    }
+    msg_viewer.show(
+        MsgViewer::MsgType::CONFIRM,
+        true, true,
+        "USB Drive Mode",
+        "The SD card will be shared with your computer.\n\n"
+        "IMPORTANT: Always safely eject / unmount the drive from your computer "
+        "before unplugging the USB cable. Skipping this step can corrupt your SD card.");
+    book_param_controller.set_waiting_usb_confirm();
+  }
+
+#else
+  static MenuViewer::MenuEntry menu[10] = {
+    { MenuViewer::Icon::RETURN,      "Return to the e-books reader",         CommonActions::return_to_last, true , true },
+    { MenuViewer::Icon::TOC,         "Table of Content",                     toc_ctrl                     , false, true },
+    { MenuViewer::Icon::BOOK_LIST,   "E-Books list",                         books_list                   , true , true },
+    { MenuViewer::Icon::FONT_PARAMS, "Current e-book parameters",            book_parameters              , true , true },
+    { MenuViewer::Icon::REVERT,      "Revert e-book parameters to "
+                                     "default values",                       revert_to_defaults           , true , true },
+    { MenuViewer::Icon::DELETE,      "Delete the current e-book",            delete_book                  , true , true },
+    { MenuViewer::Icon::WIFI,        "WiFi Access to the e-books folder",    wifi_mode                    , true , true },
+    //{ MenuViewer::Icon::INFO,        "About the EPub-InkPlate application",  CommonActions::about         , true , true },
+    { MenuViewer::Icon::POWEROFF,    "Power OFF (Deep Sleep)",               power_off                    , true , true },
+    { MenuViewer::Icon::END_MENU,    nullptr,                                nullptr                      , false, true }
+  };
+#endif
 
 void
 BookParamController::set_font_count(uint8_t count)
@@ -186,6 +258,9 @@ void
 BookParamController::enter()
 {
   menu[1].visible = toc.is_ready() && !toc.is_empty();
+  #if defined(BOARD_TYPE_PAPER_S3)
+    on_sub_menu = false;
+  #endif
   menu_viewer.show(menu);
   book_params_form_is_shown = false;
 }
@@ -313,7 +388,11 @@ BookParamController::input_event(const EventMgr::Event & event)
           fonts.adjust_default_font(book_format_params->font);
         }
       } else {
-        menu_viewer.show(menu, 0, true);
+        #if defined(BOARD_TYPE_PAPER_S3)
+          menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+        #else
+          menu_viewer.show(menu, 0, true);
+        #endif
       }
     }
   }
@@ -331,7 +410,11 @@ BookParamController::input_event(const EventMgr::Event & event)
           book_param_controller.set_wait_for_key_after_wifi();
         }
       } else {
-        menu_viewer.show(menu, 0, true);
+        #if defined(BOARD_TYPE_PAPER_S3)
+          menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+        #else
+          menu_viewer.show(menu, 0, true);
+        #endif
       }
     }
   }
@@ -346,6 +429,39 @@ BookParamController::input_event(const EventMgr::Event & event)
       stop_web_server();
       esp_restart();
     }
+  #endif
+  #if defined(BOARD_TYPE_PAPER_S3)
+  else if (waiting_usb_confirm) {
+    bool ok;
+    if (msg_viewer.confirm(event, ok)) {
+      waiting_usb_confirm = false;
+      if (ok) {
+        static const char* TAG = "BKPAR_CTRL";
+        LOG_I("USB confirmed — stopping services...");
+        epub.close_file();
+        fonts.clear(true);
+        fonts.clear_glyph_caches();
+        event_mgr.set_stay_on(true);
+        sdmmc_card_t* card = inkplate_platform.get_sd_card();
+        if (card) {
+          msg_viewer.show(
+              MsgViewer::MsgType::ALERT,
+              false, true,
+              "USB Drive Mode Active",
+              "Your SD card is now shared with your computer.\n\n"
+              "\xe2\x9a\xa0  Before unplugging the USB cable, you MUST first safely "
+              "eject / unmount the drive from your computer.\n\n"
+              "Unplugging without ejecting can corrupt your SD card and your books.");
+          USBEmulation::run_msc_session(card);
+        } else {
+          LOG_E("Card disappeared before USB session could start.");
+          menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+        }
+      } else {
+        menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+      }
+    }
+  }
   #endif
   else {
     if (menu_viewer.event(event)) {
