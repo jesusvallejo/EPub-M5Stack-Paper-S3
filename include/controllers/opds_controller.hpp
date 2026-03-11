@@ -104,7 +104,7 @@ class OPDSController
     void do_return();
 
     void show_connecting();
-    void show_fetching();
+    void show_fetching(const std::string & url);
     void show_list();
     void show_confirm();
     void show_progress(int64_t done, int64_t total);

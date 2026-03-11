@@ -22,7 +22,7 @@ struct OPDSEntry {
   std::string download_url; ///< Full URL to the .epub file (acquisition entry)
   std::string nav_url;      ///< Full URL of the sub-catalog (navigation entry)
 
-  bool is_nav() const { return !nav_url.empty(); }
+  bool is_nav() const { return !nav_url.empty() && download_url.empty(); }
 };
 
 /**

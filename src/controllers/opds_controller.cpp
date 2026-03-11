@@ -297,7 +297,7 @@ OPDSController::connect_and_fetch()
 
   current_url = url;   // remember root URL for history
 
-  show_fetching();
+  show_fetching(url);
   state = State::FETCHING;
 
   if (!opds.fetch_catalog(url.c_str(), user.c_str(), pwd.c_str(),
@@ -476,10 +476,15 @@ OPDSController::show_connecting()
 }
 
 void
-OPDSController::show_fetching()
+OPDSController::show_fetching(const std::string & url)
 {
+  // Strip scheme for display so the URL fits in the message area, but keep
+  // enough context to show host + path. Never strip silently — show full URL.
+  std::string display_url = url;
+  // Prepend a short label so the user can read it without font-size confusion
+  std::string msg = "Fetching OPDS catalog\n" + display_url;
   msg_viewer.show(MsgViewer::MsgType::WIFI, false, true,
-                  "OPDS", "Fetching catalog...");
+                  "OPDS", msg.c_str());
 }
 
 void
@@ -523,7 +528,7 @@ OPDSController::show_list()
   for (int i = start_idx; i < end_idx; i++) {
     std::string text;
     if (entries[i].is_nav()) {
-      text = "[+] ";   // folder indicator
+      text = "[+] ";
       text += entries[i].title;
     } else {
       text = entries[i].title;
@@ -531,6 +536,12 @@ OPDSController::show_list()
         text += " \xe2\x80\x94 ";   // UTF-8 em-dash
         text += entries[i].author;
       }
+    }
+    // Truncate to prevent WORD TOO LARGE when a title contains a long
+    // URL-like string with no spaces.
+    if (text.size() > 80) {
+      text.resize(77);
+      text += "...";
     }
 
     fmt.screen_top    = ypos;
