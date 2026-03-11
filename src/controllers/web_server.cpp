@@ -433,6 +433,112 @@ upload_handler(httpd_req_t * req)
   return ESP_OK;
 }
 
+// ----- upload_config_handler() -----
+// POST /upload_config — receives the new config.txt body, writes it to
+// MAIN_FOLDER "/config.txt" and hot-reloads the config object.
+
+static esp_err_t
+upload_config_handler(httpd_req_t * req)
+{
+  LOG_D("upload_config_handler");
+
+  static constexpr const char * CONFIG_PATH = MAIN_FOLDER "/config.txt";
+
+  if (req->content_len == 0) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty file");
+    return ESP_FAIL;
+  }
+
+  if (req->content_len > SCRATCH_BUFSIZE) {
+    LOG_E("Config file too large: %d bytes", req->content_len);
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                        "Config file too large (max 8 KB)");
+    return ESP_FAIL;
+  }
+
+  FILE * fd = fopen(CONFIG_PATH, "w");
+  if (!fd) {
+    LOG_E("Failed to open config file for writing: %s", CONFIG_PATH);
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                        "Failed to open config file");
+    return ESP_FAIL;
+  }
+
+  char * buf      = ((FileServerData *) req->user_ctx)->scratch;
+  int    remaining = req->content_len;
+
+  while (remaining > 0) {
+    int received = httpd_req_recv(req, buf, MIN(remaining, SCRATCH_BUFSIZE));
+    if (received <= 0) {
+      if (received == HTTPD_SOCK_ERR_TIMEOUT) continue;
+      fclose(fd);
+      unlink(CONFIG_PATH);
+      LOG_E("Config file reception failed");
+      httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                          "Failed to receive file");
+      return ESP_FAIL;
+    }
+    if (received != (int) fwrite(buf, 1, received, fd)) {
+      fclose(fd);
+      unlink(CONFIG_PATH);
+      LOG_E("Config file write failed");
+      httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                          "Failed to write config file");
+      return ESP_FAIL;
+    }
+    remaining -= received;
+  }
+
+  fclose(fd);
+  config.read();   // hot-reload so new settings take effect immediately
+  LOG_I("Config file updated and reloaded from %s", CONFIG_PATH);
+
+  httpd_resp_set_status(req, "303 See Other");
+  httpd_resp_set_hdr(req, "Location", "/");
+  httpd_resp_sendstr(req, "Config file uploaded successfully");
+  return ESP_OK;
+}
+
+// ----- download_config_handler() -----
+// GET /config.txt — sends the current config file to the browser.
+
+static esp_err_t
+download_config_handler(httpd_req_t * req)
+{
+  LOG_D("download_config_handler");
+
+  static constexpr const char * CONFIG_PATH = MAIN_FOLDER "/config.txt";
+
+  FILE * fd = fopen(CONFIG_PATH, "r");
+  if (!fd) {
+    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Config file not found");
+    return ESP_FAIL;
+  }
+
+  httpd_resp_set_type(req, "text/plain");
+  httpd_resp_set_hdr(req, "Content-Disposition",
+                     "attachment; filename=\"config.txt\"");
+
+  char * chunk = ((FileServerData *) req->user_ctx)->scratch;
+  size_t chunksize;
+  do {
+    chunksize = fread(chunk, 1, SCRATCH_BUFSIZE, fd);
+    if (chunksize > 0) {
+      if (httpd_resp_send_chunk(req, chunk, chunksize) != ESP_OK) {
+        fclose(fd);
+        httpd_resp_sendstr_chunk(req, NULL);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                            "Failed to send config file");
+        return ESP_FAIL;
+      }
+    }
+  } while (chunksize != 0);
+
+  fclose(fd);
+  httpd_resp_send_chunk(req, NULL, 0);
+  return ESP_OK;
+}
+
 // ----- delete_handler() -----
 
 static esp_err_t 
@@ -528,6 +634,16 @@ http_server_start()
     return ESP_FAIL;
   }
 
+  // Register specific GET handler before the wildcard /* so it is matched first.
+  httpd_uri_t config_download = {
+    .uri       = "/config.txt",  // GET: download the current config.txt
+    .method    = HTTP_GET,
+    .handler   = download_config_handler,
+    .user_ctx  = server_data
+  };
+
+  httpd_register_uri_handler(server, &config_download);
+
   httpd_uri_t file_download = {
     .uri       = "/*",  // Match all URIs of type /path/to/file
     .method    = HTTP_GET,
@@ -553,7 +669,16 @@ http_server_start()
     .user_ctx  = server_data
   };
 
-  httpd_register_uri_handler(server, &file_delete  );
+  httpd_register_uri_handler(server, &file_delete);
+
+  httpd_uri_t config_upload = {
+    .uri       = "/upload_config",  // POST: upload a new config.txt
+    .method    = HTTP_POST,
+    .handler   = upload_config_handler,
+    .user_ctx  = server_data
+  };
+
+  httpd_register_uri_handler(server, &config_upload);
 
   return ESP_OK;
 }
@@ -576,9 +701,21 @@ start_web_server()
   page_locs.abort_threads();
   epub.close_file();
 
+  // Show the message while fonts are still loaded so that the EPD update
+  // completes (blocking, ~1.6 s on Paper S3).  This matches the NTP pattern:
+  // display activity must finish well before the WiFi auth handshake begins.
   msg_viewer.show(MsgViewer::MsgType::WIFI, false, true, 
     "Web Server Starting", 
     "The Web server is now establishing the connexion with the WiFi router. Please wait.");
+
+  // Free font caches and yield after the display is settled.
+  // The caller (confirm handler) must NOT clear fonts before calling us.
+#if EPUB_INKPLATE_BUILD
+  fonts.clear(true);
+  fonts.clear_glyph_caches();
+  event_mgr.set_stay_on(true);
+  vTaskDelay(pdMS_TO_TICKS(500));
+#endif
 
   #if defined(INKPLATE_6PLUS)
     #define MSG "Tap the screen"

@@ -12,13 +12,17 @@
 /**
  * @brief Single entry returned from an OPDS Atom catalog
  *
- * download_url is non-empty only for acquisition entries (epub+zip).
- * For navigation entries both fields are empty and the entry is skipped.
+ * Exactly one of download_url or nav_url will be non-empty:
+ *  - download_url: acquisition entry (epub+zip) — user can download the book.
+ *  - nav_url:      navigation/subsection entry — user can browse into it.
  */
 struct OPDSEntry {
   std::string title;
   std::string author;
-  std::string download_url; ///< Full URL to the .epub file (empty if not downloadable)
+  std::string download_url; ///< Full URL to the .epub file (acquisition entry)
+  std::string nav_url;      ///< Full URL of the sub-catalog (navigation entry)
+
+  bool is_nav() const { return !nav_url.empty(); }
 };
 
 /**

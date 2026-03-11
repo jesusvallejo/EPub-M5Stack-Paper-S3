@@ -327,13 +327,6 @@ power_off_mode()
     page_locs.abort_threads();
     epub.close_file();
 
-    // Free font caches before WiFi — matches what the web server confirm path
-    // does and is critical: WiFi DMA buffers need large contiguous heap blocks.
-    // Without this, heap fragmentation from active font caches causes the WiFi
-    // driver to silently time out during authentication (WIFI_REASON_AUTH_EXPIRE).
-    fonts.clear(true);
-    fonts.clear_glyph_caches();
-
     std::string ntp_server;
     std::string wifi_ssid;
     config.get(Config::Ident::NTP_SERVER, ntp_server);
@@ -342,16 +335,26 @@ power_off_mode()
     // Prevent light sleep while WiFi is active.
     event_mgr.set_stay_on(true);
 
-    // Show "connecting..." now that memory is freed and display is settled.
+    // Show "Connecting..." BEFORE clearing font caches so that fonts are still
+    // loaded for a fast render (no SD card reload).  The EPD update that fires
+    // here wakes epdiy tasks at configMAX_PRIORITIES-1; completing it early
+    // maximises the dead time before the WiFi auth handshake begins.
     msg_viewer.show(MsgViewer::MsgType::NTP_CLOCK, false, true,
       "Connecting to WiFi",
       "Connecting to \"%s\"...\nFetching time from %s...",
       wifi_ssid.c_str(), ntp_server.c_str());
 
-    // Brief yield so FreeRTOS tasks (touch, battery) can complete any pending
-    // I2C transactions before the WiFi driver spins up its high-priority task.
+    // Now release memory caches — this itself takes some time (page_locs
+    // abort may block briefly), adding more dead time after the last EPD
+    // update and before wifi.start().
+    fonts.clear(true);
+    fonts.clear_glyph_caches();
+
+    // Extended settle: 500 ms of no EPD / SD / font activity so that
+    // touch/battery I2C tasks and the FreeRTOS scheduler reach a fully
+    // idle state before WiFi auth begins.
     #if EPUB_INKPLATE_BUILD
-      vTaskDelay(pdMS_TO_TICKS(200));
+      vTaskDelay(pdMS_TO_TICKS(500));
     #endif
 
     // Let ntp handle the full wifi start/query/stop cycle.
@@ -683,10 +686,11 @@ OptionController::input_event(const EventMgr::Event & event)
       waiting_wifi_confirm = false;
       if (ok) {
         #if EPUB_INKPLATE_BUILD
+          // start_web_server() shows the connecting message (with fonts still
+          // loaded), then clears fonts and adds the settle delay internally.
+          // Do NOT clear fonts here - that must happen inside start_web_server()
+          // after the display update, not before.
           epub.close_file();
-          fonts.clear(true);
-          fonts.clear_glyph_caches();
-          event_mgr.set_stay_on(true);
           if (start_web_server()) {
             option_controller.set_wait_for_key_after_wifi();
           }

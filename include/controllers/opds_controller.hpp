@@ -76,10 +76,14 @@ class OPDSController
 
     State state;
 
-    std::vector<OPDSEntry> entries;
+    std::vector<OPDSEntry>  entries;
     int  current_page;
     int  entries_per_page;
-    int  selected_idx;   ///< Index into entries[] of the book to download
+    int  selected_idx;   ///< Index into entries[] of the book/folder tapped
+
+    // Navigation history — used when the user browses into sub-catalogs.
+    std::string              current_url;  ///< URL of the currently displayed catalog
+    std::vector<std::string> url_stack;    ///< Stack of parent URLs (for back navigation)
 
     // Download progress tracking
     int64_t  dl_total_bytes;       ///< Content-Length (-1 if unknown)
@@ -95,6 +99,7 @@ class OPDSController
     int  pages() const;
 
     void connect_and_fetch();
+    void fetch_page(const std::string & url);  ///< Re-fetch catalog at url (WiFi already up)
     void start_download(int idx);
     void do_return();
 

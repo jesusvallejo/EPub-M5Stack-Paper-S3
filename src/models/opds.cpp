@@ -15,6 +15,7 @@
 #if EPUB_INKPLATE_BUILD
   #include "esp_http_client.h"
   #include "esp_crt_bundle.h"
+  #include "esp_system.h"
   #include "freertos/FreeRTOS.h"
   #include "freertos/task.h"
 #endif
@@ -113,14 +114,34 @@ OPDS::fetch_catalog(const char           * url,
 #if EPUB_INKPLATE_BUILD
 
   esp_http_client_config_t cfg = {};
-  cfg.url                = url;
-  cfg.timeout_ms         = 15000;
-  cfg.crt_bundle_attach  = esp_crt_bundle_attach;
-  cfg.keep_alive_enable  = false;
+  cfg.url               = url;
+  cfg.timeout_ms        = 15000;
+  cfg.keep_alive_enable = false;
+  // Always attach the CRT bundle so that HTTP→HTTPS redirects are handled
+  // transparently without needing to reinitialise the client handle.
+  cfg.crt_bundle_attach = esp_crt_bundle_attach;
+  // Use small explicit I/O buffers; the default values can be much larger
+  // and are allocated during esp_http_client_init while the WiFi stack is
+  // already resident in RAM, leaving little headroom.
+  cfg.buffer_size    = 512;
+  cfg.buffer_size_tx = 512;
+
+  // Validate URL scheme before passing to esp_http_client_init; a missing
+  // "http://" or "https://" prefix causes init to return NULL with no
+  // further diagnostics.
+  if (strncmp(url, "http://",  7) != 0 &&
+      strncmp(url, "https://", 8) != 0) {
+    snprintf(error_msg, error_size,
+             "Bad URL (must start with http:// or https://):\n%.80s", url);
+    return false;
+  }
 
   esp_http_client_handle_t client = esp_http_client_init(&cfg);
   if (!client) {
-    snprintf(error_msg, error_size, "http_init failed");
+    snprintf(error_msg, error_size,
+             "HTTP client init failed (free heap: %u B).\n"
+             "URL: %.80s",
+             (unsigned) esp_get_free_heap_size(), url);
     return false;
   }
 
@@ -134,9 +155,27 @@ OPDS::fetch_catalog(const char           * url,
     return false;
   }
 
-  esp_http_client_fetch_headers(client);
+  // Follow up to 5 redirects (HTTP 301/302/307/308)
+  int http_status = 0;
+  for (int redir = 0; redir < 5; redir++) {
+    esp_http_client_fetch_headers(client);
+    http_status = esp_http_client_get_status_code(client);
+    if (http_status < 300 || http_status >= 400) break;
 
-  int http_status = esp_http_client_get_status_code(client);
+    char * location = nullptr;
+    esp_http_client_get_header(client, "Location", &location);
+    if (!location || !location[0]) break;
+
+    esp_http_client_close(client);
+    esp_http_client_set_url(client, location);
+    rc = esp_http_client_open(client, 0);
+    if (rc != ESP_OK) {
+      esp_http_client_cleanup(client);
+      snprintf(error_msg, error_size, "redirect open: %s", esp_err_to_name(rc));
+      return false;
+    }
+  }
+
   if (http_status != 200) {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
@@ -144,15 +183,16 @@ OPDS::fetch_catalog(const char           * url,
     return false;
   }
 
-  // Read body into std::string (capped at MAX_CATALOG_BYTES)
+  // Read body — close the HTTP client first so the transport layer memory
+  // is released before allocating the string + XML DOM.
   std::string body;
-  body.reserve(32 * 1024);
-
-  char buf[1024];
-  int  bytes;
-  while ((bytes = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
-    body.append(buf, static_cast<size_t>(bytes));
-    if (body.size() >= MAX_CATALOG_BYTES) break;
+  {
+    static char buf[512];
+    int bytes;
+    while ((bytes = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
+      body.append(buf, static_cast<size_t>(bytes));
+      if (body.size() >= MAX_CATALOG_BYTES) break;
+    }
   }
 
   esp_http_client_close(client);
@@ -189,7 +229,7 @@ OPDS::fetch_catalog(const char           * url,
     pugi::xml_node author_node = entry.child("author");
     if (author_node) e.author = author_node.child_value("name");
 
-    // Find an epub+zip acquisition link
+    // Find an epub+zip acquisition link, or a navigation/subsection link.
     for (pugi::xml_node link : entry.children("link")) {
       const char * rel  = link.attribute("rel").value();
       const char * type = link.attribute("type").value();
@@ -198,18 +238,28 @@ OPDS::fetch_catalog(const char           * url,
       if (strcmp(rel, "http://opds-spec.org/acquisition") == 0 &&
           strstr(type, "epub") != nullptr) {
         e.download_url = resolve_url(base_url, href);
-        break;
+        break; // acquisition takes priority
+      }
+
+      // Navigation entries: rel="subsection" or catalog/navigation types
+      if (e.nav_url.empty()) {
+        if (strcmp(rel, "subsection") == 0 ||
+            strcmp(rel, "http://opds-spec.org/sort/new")    == 0 ||
+            strcmp(rel, "http://opds-spec.org/sort/popular") == 0 ||
+            strstr(type, "opds-catalog") != nullptr) {
+          e.nav_url = resolve_url(base_url, href);
+        }
       }
     }
 
-    // Only keep entries the user can actually download
-    if (!e.download_url.empty() && !e.title.empty()) {
+    // Keep acquisition entries AND navigation entries (folders).
+    if (!e.title.empty() && (!e.download_url.empty() || !e.nav_url.empty())) {
       entries.push_back(std::move(e));
     }
   }
 
   if (entries.empty()) {
-    snprintf(error_msg, error_size, "No downloadable books found");
+    snprintf(error_msg, error_size, "Empty catalog (no books or folders found)");
     return false;
   }
 
@@ -261,9 +311,28 @@ OPDS::download_book(const char * url,
     return false;
   }
 
-  int64_t content_length = esp_http_client_fetch_headers(client);
+  // Follow up to 5 redirects (HTTP 301/302/307/308)
+  int64_t content_length = 0;
+  int http_status = 0;
+  for (int redir = 0; redir < 5; redir++) {
+    content_length = esp_http_client_fetch_headers(client);
+    http_status = esp_http_client_get_status_code(client);
+    if (http_status < 300 || http_status >= 400) break;
 
-  int http_status = esp_http_client_get_status_code(client);
+    char * location = nullptr;
+    esp_http_client_get_header(client, "Location", &location);
+    if (!location || !location[0]) break;
+
+    esp_http_client_close(client);
+    esp_http_client_set_url(client, location);
+    rc = esp_http_client_open(client, 0);
+    if (rc != ESP_OK) {
+      esp_http_client_cleanup(client);
+      snprintf(error_msg, error_size, "redirect open: %s", esp_err_to_name(rc));
+      return false;
+    }
+  }
+
   if (http_status != 200) {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);

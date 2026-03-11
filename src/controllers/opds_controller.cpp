@@ -95,6 +95,8 @@ OPDSController::enter()
   dl_cancelled  = false;
   dl_last_pct   = -1;
   entries.clear();
+  url_stack.clear();
+  current_url.clear();
 
   connect_and_fetch();   // Blocks until catalog fetched or error
 
@@ -134,7 +136,16 @@ OPDSController::input_event(const EventMgr::Event & event)
         break;
       }
       if (event.kind == EventMgr::EventKind::SWIPE_RIGHT) {
-        if (current_page > 0) { current_page--; show_list(); }
+        if (current_page > 0) {
+          current_page--;
+          show_list();
+        } else if (!url_stack.empty()) {
+          // Navigate back to the parent catalog
+          std::string parent = url_stack.back();
+          url_stack.pop_back();
+          fetch_page(parent);
+          if (state == State::ERROR) { show_error(); } else { show_list(); }
+        }
         break;
       }
       if (event.kind == EventMgr::EventKind::TAP) {
@@ -151,8 +162,15 @@ OPDSController::input_event(const EventMgr::Event & event)
               abs_idx >= 0 &&
               abs_idx < static_cast<int>(entries.size())) {
             selected_idx = abs_idx;
-            show_confirm();
-            state = State::CONFIRM_DOWNLOAD;
+            if (entries[abs_idx].is_nav()) {
+              // Navigate into the sub-catalog (no confirmation needed)
+              url_stack.push_back(current_url);
+              fetch_page(entries[abs_idx].nav_url);
+              if (state == State::ERROR) { show_error(); } else { show_list(); }
+            } else {
+              show_confirm();
+              state = State::CONFIRM_DOWNLOAD;
+            }
           }
         }
       }
@@ -240,26 +258,35 @@ OPDSController::connect_and_fetch()
     return;
   }
 
-  // Mandatory pre-WiFi memory release sequence.
-  // WiFi DMA buffers need large contiguous heap blocks; font caches and
-  // an open epub file fragment the heap enough to cause a crash or auth timeout.
-  // This mirrors what the web-server confirm path and NTP both do.
+  // Prevent light sleep during the entire WiFi session.
+#if EPUB_INKPLATE_BUILD
+  event_mgr.set_stay_on(true);
+#endif
+
+  // Show "Connecting..." BEFORE freeing resources so that:
+  //  a) Fonts are still loaded → fast render, no SD card reload.
+  //  b) The EPD update (which wakes epdiy tasks at configMAX_PRIORITIES-1)
+  //     completes well before the WiFi auth handshake begins.
+  // This is the same reason NTP needs a user-confirm step between the menu
+  // tap and wifi.start(): any display/font activity in that gap would let
+  // the high-priority epdiy tasks pre-empt the WiFi system task during auth.
+  show_connecting();
+  state = State::CONNECTING;
+
+  // Now release memory.  page_locs.join() may itself take 100-400 ms while
+  // the worker threads reach a safe abort point — that dead time counts as
+  // additional settling after the last EPD update.
 #if EPUB_INKPLATE_BUILD
   page_locs.abort_threads();
   epub.close_file();
   fonts.clear(true);
   fonts.clear_glyph_caches();
-  event_mgr.set_stay_on(true);
-#endif
 
-  // Show "Connecting..."
-  show_connecting();
-  state = State::CONNECTING;
-
-#if EPUB_INKPLATE_BUILD
-  // Brief yield so FreeRTOS tasks (touch, battery) can finish any pending
-  // I2C transactions before the WiFi driver spins up its high-priority task.
-  vTaskDelay(pdMS_TO_TICKS(200));
+  // Extended settle: no EPD, no SD, no font work is happening here.
+  // 500 ms gives touch/battery I2C tasks and the FreeRTOS scheduler time
+  // to reach a fully idle state before the WiFi driver starts its own
+  // high-priority tasks and the auth handshake begins.
+  vTaskDelay(pdMS_TO_TICKS(500));
 
   if (!wifi.start()) {
     snprintf(last_error, sizeof(last_error), "WiFi connection failed.\nCheck wifi_ssid / wifi_pwd.");
@@ -267,6 +294,8 @@ OPDSController::connect_and_fetch()
     return;
   }
 #endif
+
+  current_url = url;   // remember root URL for history
 
   show_fetching();
   state = State::FETCHING;
@@ -288,6 +317,39 @@ OPDSController::connect_and_fetch()
   current_page = 0;
   state = State::SHOWING_LIST;
   // WiFi stays on — we may need it for the download
+}
+
+// ---------------------------------------------------------------------------
+// fetch_page  — navigate to a sub-catalog while WiFi is already running
+// ---------------------------------------------------------------------------
+
+void
+OPDSController::fetch_page(const std::string & url)
+{
+  std::string user, pwd;
+  config.get(Config::Ident::OPDS_USER, user);
+  config.get(Config::Ident::OPDS_PWD,  pwd);
+
+  current_url   = url;   // copy the URL string BEFORE clearing entries
+  current_page  = 0;
+  selected_idx  = -1;
+  entries.clear();       // invalidates the reference 'url' was pointing into
+
+  show_fetching();
+
+  // Use current_url (our own copy), NOT url.c_str() — the reference is
+  // dangling after entries.clear() if the caller passed entries[i].nav_url.
+  if (!opds.fetch_catalog(current_url.c_str(), user.c_str(), pwd.c_str(),
+                          entries, last_error, sizeof(last_error))) {
+    state = State::ERROR;
+    return;
+  }
+
+  entries_per_page =
+    (Screen::get_height() - FIRST_ENTRY_YPOS - FOOTER_RESERVE) / ENTRY_HEIGHT;
+  if (entries_per_page < 1) entries_per_page = 1;
+
+  state = State::SHOWING_LIST;
 }
 
 // ---------------------------------------------------------------------------
@@ -459,10 +521,16 @@ OPDSController::show_list()
   int16_t ypos = FIRST_ENTRY_YPOS;
 
   for (int i = start_idx; i < end_idx; i++) {
-    std::string text = entries[i].title;
-    if (!entries[i].author.empty()) {
-      text += " \xe2\x80\x94 ";   // UTF-8 em-dash
-      text += entries[i].author;
+    std::string text;
+    if (entries[i].is_nav()) {
+      text = "[+] ";   // folder indicator
+      text += entries[i].title;
+    } else {
+      text = entries[i].title;
+      if (!entries[i].author.empty()) {
+        text += " \xe2\x80\x94 ";   // UTF-8 em-dash
+        text += entries[i].author;
+      }
     }
 
     fmt.screen_top    = ypos;
@@ -486,12 +554,26 @@ OPDSController::show_list()
 
   page.set_limits(fmt);
   page.new_paragraph(fmt);
+
+  bool has_nav = false;
+  for (const auto & e : entries) { if (e.is_nav()) { has_nav = true; break; } }
+
   std::string nav_hint;
   if (pages() > 1) {
-    nav_hint = "Swipe left / right to change page   |   Tap entry to download   |   Tap here to exit";
-  } else {
-    nav_hint = "Tap an entry to download   |   Tap here to exit";
+    nav_hint = "Swipe left/right to page";
   }
+  if (has_nav) {
+    if (!nav_hint.empty()) nav_hint += "   |   ";
+    nav_hint += "Tap [+] to browse, book to download";
+  } else {
+    if (!nav_hint.empty()) nav_hint += "   |   ";
+    nav_hint += "Tap entry to download";
+  }
+  if (!url_stack.empty()) {
+    nav_hint += "   |   Swipe right to go back";
+  }
+  nav_hint += "   |   Tap here to exit";
+
   page.add_text(nav_hint, fmt);
   page.end_paragraph(fmt);
 

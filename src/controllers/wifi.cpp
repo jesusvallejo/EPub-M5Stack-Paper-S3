@@ -44,6 +44,12 @@ wifi_sta_event_handler(void        * arg,
 
   if (event_base == WIFI_EVENT) {
     if (event_id == WIFI_EVENT_STA_START) {
+      // Reset retry counter at the start of each new WiFi session.
+      // Without this, a previous failed session (e.g. OPDS exhausting all
+      // retries) would leave s_retry_num = 6, causing the first
+      // WIFI_EVENT_STA_DISCONNECTED of the next session to fire WIFI_FAIL_BIT
+      // immediately instead of retrying.
+      s_retry_num = 0;
       esp_wifi_connect();
     } 
     else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {

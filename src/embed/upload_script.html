@@ -23,6 +23,19 @@
           <button id="upload" type="button" onclick="upload()">Upload</button>
         </td>
       </tr>
+      <tr><td colspan="3"><hr style="margin:6px 0;"></td></tr>
+      <tr>
+        <td>
+          <label for="configfile">Config file (config.txt)</label>
+        </td>
+        <td>
+          <input id="configfile" type="file" accept=".txt" style="width:100%;">
+        </td>
+        <td>
+          <button id="uploadconfig" type="button" onclick="uploadConfig()">Upload</button>
+          &nbsp;<a href="/config.txt" download="config.txt">Download</a>
+        </td>
+      </tr>
     </table>
   </td></tr>
 </table>
@@ -71,5 +84,36 @@ function upload() {
     xhttp.open("POST", upload_path, true);
     xhttp.send(file);
   }
+}
+function uploadConfig() {
+  var fileInput = document.getElementById("configfile").files;
+  if (fileInput.length == 0) {
+    alert("No config file selected!");
+    return;
+  }
+  var file = fileInput[0];
+  if (file.size > 8192) {
+    alert("Config file too large (max 8 KB)!");
+    return;
+  }
+  document.getElementById("configfile"  ).disabled = true;
+  document.getElementById("uploadconfig").disabled = true;
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (xhttp.readyState == 4) {
+      if (xhttp.status == 200) {
+        alert("Config file uploaded and reloaded successfully.");
+        location.reload();
+      } else if (xhttp.status == 0) {
+        alert("Server closed the connection abruptly!");
+        location.reload();
+      } else {
+        alert(xhttp.status + " Error!\n" + xhttp.responseText);
+        location.reload();
+      }
+    }
+  };
+  xhttp.open("POST", "/upload_config", true);
+  xhttp.send(file);
 }
 </script>
