@@ -36,24 +36,85 @@
 
 namespace {
 
-/// Extract the last path segment from a URL (used as filename).
-std::string
-filename_from_url(const std::string & url)
+/// Sanitise a string so it can be used as a FAT/SD filename component.
+/// Keeps alphanumerics, spaces, hyphens, underscores and dots;
+/// collapses runs of invalid chars to a single underscore.
+static std::string
+sanitise_filename(const std::string & s)
 {
-  const size_t slash = url.rfind('/');
-  std::string  name  = (slash != std::string::npos) ? url.substr(slash + 1) : url;
-
-  // Strip query string if present
-  const size_t q = name.find('?');
-  if (q != std::string::npos) name = name.substr(0, q);
-
-  if (name.empty()) name = "book.epub";
-
-  // Ensure .epub extension
-  if (name.size() < 5 || name.compare(name.size() - 5, 5, ".epub") != 0) {
-    name += ".epub";
+  std::string out;
+  out.reserve(s.size());
+  bool prev_replaced = false;
+  for (unsigned char c : s) {
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+        (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == ' ') {
+      out += static_cast<char>(c);
+      prev_replaced = false;
+    } else {
+      if (!prev_replaced && !out.empty()) out += '_';
+      prev_replaced = true;
+    }
   }
-  return name;
+  // Trim trailing spaces/underscores
+  while (!out.empty() && (out.back() == ' ' || out.back() == '_')) out.pop_back();
+  return out;
+}
+
+/// Build a .epub filename for a catalog entry.
+/// Format: "Title - Author (Year).epub"
+/// Falls back gracefully when author/year are missing.
+/// Uses the URL last segment only when it already looks like a real filename.
+std::string
+filename_for_entry(const std::string & title, const std::string & url,
+                   const std::string & author, const std::string & year)
+{
+  // Try to extract last path segment from URL
+  const size_t slash = url.rfind('/');
+  std::string  seg   = (slash != std::string::npos) ? url.substr(slash + 1) : url;
+  // Strip query string
+  const size_t q = seg.find('?');
+  if (q != std::string::npos) seg = seg.substr(0, q);
+
+  // Generic/numeric segments that are not real filenames
+  static const char * const generic[] = {
+    "download", "file", "get", "epub", "book", "content", nullptr
+  };
+  bool seg_generic = false;
+  std::string seg_lower = seg;
+  for (char & c : seg_lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+  std::string seg_base = (seg_lower.size() >= 5 &&
+    seg_lower.compare(seg_lower.size()-5,5,".epub")==0)
+      ? seg_lower.substr(0, seg_lower.size()-5) : seg_lower;
+  for (int i = 0; generic[i]; i++) {
+    if (seg_base == generic[i]) { seg_generic = true; break; }
+  }
+  if (!seg_generic && !seg_base.empty()) {
+    bool all_digits = true;
+    for (char c : seg_base) if (c < '0' || c > '9') { all_digits = false; break; }
+    if (all_digits) seg_generic = true;
+  }
+
+  if (!title.empty() && (seg_generic || seg.empty())) {
+    // Build "Title - Author (Year)" parts
+    std::string name = sanitise_filename(title);
+    if (name.empty()) name = "book";
+    if (!author.empty()) {
+      name += " - ";
+      name += sanitise_filename(author);
+    }
+    if (!year.empty()) {
+      name += " (";
+      name += year;
+      name += ")";
+    }
+    // Limit length to keep FAT paths short
+    if (name.size() > 80) name.resize(80);
+    return name + ".epub";
+  }
+
+  if (seg.empty()) return "book.epub";
+  if (seg.size() < 5 || seg.compare(seg.size()-5,5,".epub") != 0) seg += ".epub";
+  return seg;
 }
 
 /// Build a zero-initialised Page::Format.
@@ -335,7 +396,7 @@ OPDSController::fetch_page(const std::string & url)
   selected_idx  = -1;
   entries.clear();       // invalidates the reference 'url' was pointing into
 
-  show_fetching();
+  show_fetching(url);
 
   // Use current_url (our own copy), NOT url.c_str() — the reference is
   // dangling after entries.clear() if the caller passed entries[i].nav_url.
@@ -368,7 +429,7 @@ OPDSController::start_download(int idx)
   const OPDSEntry & entry = entries[idx];
 
   std::string  url      = entry.download_url;
-  std::string  filename = filename_from_url(url);
+  std::string  filename = filename_for_entry(entry.title, url, entry.author, entry.year);
   std::string  filepath = std::string(MAIN_FOLDER) + "/books/" + filename;
 
   // Initial full-screen progress display
@@ -478,10 +539,22 @@ OPDSController::show_connecting()
 void
 OPDSController::show_fetching(const std::string & url)
 {
-  // Strip scheme for display so the URL fits in the message area, but keep
-  // enough context to show host + path. Never strip silently — show full URL.
-  std::string display_url = url;
-  // Prepend a short label so the user can read it without font-size confusion
+  // Insert a space after every '/' so the page renderer can word-wrap the URL
+  // (a bare URL with no spaces is treated as one giant word and causes
+  // WORD TOO LARGE).  Also strip the scheme prefix to save horizontal space.
+  const char * p = url.c_str();
+  if (strncmp(p, "https://", 8) == 0) p += 8;
+  else if (strncmp(p, "http://",  7) == 0) p += 7;
+
+  std::string display_url;
+  display_url.reserve(strlen(p) + 16);
+  for (; *p; ++p) {
+    display_url += *p;
+    // Insert a zero-width break opportunity after '/' and '.' so the page
+    // renderer can word-wrap the URL instead of treating it as one giant word.
+    if (*p == '/' || *p == '.') display_url += ' ';
+  }
+
   std::string msg = "Fetching OPDS catalog\n" + display_url;
   msg_viewer.show(MsgViewer::MsgType::WIFI, false, true,
                   "OPDS", msg.c_str());

@@ -19,6 +19,7 @@
 struct OPDSEntry {
   std::string title;
   std::string author;
+  std::string year;         ///< Publication year, e.g. "2021" (empty if unknown)
   std::string download_url; ///< Full URL to the .epub file (acquisition entry)
   std::string nav_url;      ///< Full URL of the sub-catalog (navigation entry)
 

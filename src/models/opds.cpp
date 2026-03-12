@@ -18,6 +18,7 @@
   #include "esp_system.h"
   #include "freertos/FreeRTOS.h"
   #include "freertos/task.h"
+  #include "lwip/netdb.h"
 #endif
 
 // ---------------------------------------------------------------------------
@@ -98,6 +99,52 @@ resolve_url(const std::string & base, const char * href)
 }
 
 // ---------------------------------------------------------------------------
+// HTTP event handler for body collection (used by fetch_catalog)
+// ---------------------------------------------------------------------------
+
+#if EPUB_INKPLATE_BUILD
+struct OpdsFetchCtx {
+  std::string * body;
+  size_t        max_bytes;
+  char          location[512]; // captured from Location: header
+  bool          finished;      // HTTP_EVENT_ON_FINISH received
+};
+
+static esp_err_t opds_http_event(esp_http_client_event_t * evt)
+{
+  auto * ctx = static_cast<OpdsFetchCtx *>(evt->user_data);
+  if (!ctx) return ESP_OK;
+
+  switch (evt->event_id) {
+    case HTTP_EVENT_ON_HEADER:
+      // Capture redirect location — compare case-insensitively
+      if (evt->header_key && strcasecmp(evt->header_key, "Location") == 0
+          && evt->header_value) {
+        strncpy(ctx->location, evt->header_value, sizeof(ctx->location) - 1);
+        ctx->location[sizeof(ctx->location) - 1] = '\0';
+      }
+      break;
+    case HTTP_EVENT_ON_DATA:
+      if (evt->data_len > 0) {
+        if (ctx->body->size() < ctx->max_bytes) {
+          size_t space = ctx->max_bytes - ctx->body->size();
+          size_t add = static_cast<size_t>(evt->data_len) < space
+                     ? static_cast<size_t>(evt->data_len) : space;
+          ctx->body->append(static_cast<const char *>(evt->data), add);
+        }
+      }
+      break;
+    case HTTP_EVENT_ON_FINISH:
+      ctx->finished = true;
+      break;
+    default:
+      break;
+  }
+  return ESP_OK;
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // fetch_catalog
 // ---------------------------------------------------------------------------
 
@@ -123,7 +170,9 @@ OPDS::fetch_catalog(const char           * url,
   // Use small explicit I/O buffers; the default values can be much larger
   // and are allocated during esp_http_client_init while the WiFi stack is
   // already resident in RAM, leaving little headroom.
-  cfg.buffer_size    = 512;
+  // 4 KiB == one TLS record; receiving the entire response header block in
+  // a single read avoids close_notify arriving mid-header-parse.
+  cfg.buffer_size    = 4096;
   cfg.buffer_size_tx = 512;
 
   // Validate URL scheme before passing to esp_http_client_init; a missing
@@ -136,69 +185,129 @@ OPDS::fetch_catalog(const char           * url,
     return false;
   }
 
-  esp_http_client_handle_t client = esp_http_client_init(&cfg);
-  if (!client) {
-    snprintf(error_msg, error_size,
-             "HTTP client init failed (free heap: %u B).\n"
-             "URL: %.80s",
-             (unsigned) esp_get_free_heap_size(), url);
-    return false;
-  }
+  LOG_I("OPDS fetch_catalog: URL=%s", url);
+  LOG_I("OPDS free heap before init: %u B", (unsigned) esp_get_free_heap_size());
 
-  if (user && user[0]) set_auth_header(client, user, pwd);
-  esp_http_client_set_header(client, "Accept", "application/atom+xml,application/xml,text/xml");
-
-  esp_err_t rc = esp_http_client_open(client, 0);
-  if (rc != ESP_OK) {
-    esp_http_client_cleanup(client);
-    snprintf(error_msg, error_size, "open: %s", esp_err_to_name(rc));
-    return false;
-  }
-
-  // Follow up to 5 redirects (HTTP 301/302/307/308)
-  int http_status = 0;
-  for (int redir = 0; redir < 5; redir++) {
-    esp_http_client_fetch_headers(client);
-    http_status = esp_http_client_get_status_code(client);
-    if (http_status < 300 || http_status >= 400) break;
-
-    char * location = nullptr;
-    esp_http_client_get_header(client, "Location", &location);
-    if (!location || !location[0]) break;
-
-    esp_http_client_close(client);
-    esp_http_client_set_url(client, location);
-    rc = esp_http_client_open(client, 0);
-    if (rc != ESP_OK) {
-      esp_http_client_cleanup(client);
-      snprintf(error_msg, error_size, "redirect open: %s", esp_err_to_name(rc));
-      return false;
+  // Manual DNS resolution so we can log what IP the hostname resolves to.
+  {
+    // Extract hostname from URL (between :// and the next / or :)
+    const char * host_start = strstr(url, "://");
+    if (host_start) {
+      host_start += 3;
+      const char * host_end = host_start;
+      while (*host_end && *host_end != '/' && *host_end != ':') host_end++;
+      char hostname[128] = {};
+      size_t hlen = static_cast<size_t>(host_end - host_start);
+      if (hlen < sizeof(hostname)) {
+        memcpy(hostname, host_start, hlen);
+        hostname[hlen] = '\0';
+        LOG_I("OPDS DNS lookup: hostname='%s'", hostname);
+        struct addrinfo hints = {};
+        hints.ai_family   = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+        struct addrinfo * res = nullptr;
+        int gai_err = getaddrinfo(hostname, nullptr, &hints, &res);
+        if (gai_err != 0 || !res) {
+          LOG_E("OPDS DNS FAILED for '%s': err=%d", hostname, gai_err);
+        } else {
+          char ipstr[64] = "?";
+          if (res->ai_family == AF_INET) {
+            auto * s = reinterpret_cast<struct sockaddr_in *>(res->ai_addr);
+            inet_ntoa_r(s->sin_addr, ipstr, sizeof(ipstr));
+          } else {
+            snprintf(ipstr, sizeof(ipstr), "(IPv6 or unknown family %d)", res->ai_family);
+          }
+          LOG_I("OPDS DNS resolved '%s' -> %s (family=%d)",
+                hostname, ipstr, res->ai_family);
+          freeaddrinfo(res);
+        }
+      }
     }
   }
+
+  // Body is collected via HTTP_EVENT_ON_DATA; ON_HEADER captures Location so
+  // we can follow one redirect ourselves without relying on perform()'s
+  // auto-redirect — which uses fetch_headers() internally and fails when
+  // Traefik sends TLS close_notify immediately after the 301 response headers.
+  std::string body;
+
+  // One-shot request helper: creates a fresh client, performs, cleans up.
+  // Returns HTTP status code, or <=0 on transport error.
+  // Fills redirect_out when a Location header was received.
+  auto do_one_request = [&](const char * req_url,
+                             std::string & redirect_out) -> int
+  {
+    body.clear();
+    OpdsFetchCtx ctx{};
+    ctx.body      = &body;
+    ctx.max_bytes = MAX_CATALOG_BYTES;
+
+    cfg.url                   = req_url;
+    cfg.event_handler         = opds_http_event;
+    cfg.user_data             = &ctx;
+    cfg.max_redirection_count = 0;
+    cfg.disable_auto_redirect = true;
+
+    esp_http_client_handle_t cl = esp_http_client_init(&cfg);
+    if (!cl) {
+      LOG_E("OPDS init NULL for %.80s", req_url);
+      return -2;
+    }
+    if (user && user[0]) set_auth_header(cl, user, pwd);
+    esp_http_client_set_header(cl, "Accept",
+      "application/atom+xml,application/xml,text/xml");
+    // Do NOT set Connection: close — that forces Traefik to send TLS
+    // close_notify in the same burst as the response headers, which causes
+    // esp_http_client_fetch_headers() to fail before parsing the status line.
+
+    esp_err_t err  = esp_http_client_perform(cl);
+    int       stat = esp_http_client_get_status_code(cl);
+    LOG_I("OPDS perform url=%.80s rc=%s status=%d loc='%s' body=%u B fin=%d",
+          req_url, esp_err_to_name(err), stat, ctx.location,
+          (unsigned) body.size(), (int) ctx.finished);
+
+    // If perform() returned an error but we already received body data via
+    // ON_DATA events, the full response was delivered and the TLS close_notify
+    // arrived just as we were finishing — treat as a successful 200.
+    if (err != ESP_OK && stat <= 0 && !body.empty()) {
+      LOG_I("OPDS perform error ignored: body received, treating as HTTP 200");
+      stat = 200;
+    }
+
+    if (ctx.location[0]) redirect_out = ctx.location;
+
+    esp_http_client_cleanup(cl);
+    return stat;
+  };
+
+  std::string redirect_url;
+  int http_status = do_one_request(url, redirect_url);
+
+  // Follow one redirect: covers clean 3xx AND the case where close_notify
+  // caused status=-1 but Location was already captured by ON_HEADER event.
+  bool need_redirect = (http_status >= 300 && http_status < 400)
+                    || (http_status <= 0 && !redirect_url.empty());
+  if (need_redirect && !redirect_url.empty()) {
+    LOG_I("OPDS following redirect -> %s", redirect_url.c_str());
+    std::string unused;
+    http_status = do_one_request(redirect_url.c_str(), unused);
+  }
+
+  LOG_I("OPDS done. heap=%u B", (unsigned) esp_get_free_heap_size());
 
   if (http_status != 200) {
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    snprintf(error_msg, error_size, "HTTP %d", http_status);
+    LOG_E("OPDS final HTTP status %d", http_status);
+    if (http_status <= 0) {
+      snprintf(error_msg, error_size,
+               "Connection error (TLS/network). Check URL and network.");
+    } else {
+      snprintf(error_msg, error_size, "HTTP %d", http_status);
+    }
     return false;
   }
 
-  // Read body — close the HTTP client first so the transport layer memory
-  // is released before allocating the string + XML DOM.
-  std::string body;
-  {
-    static char buf[512];
-    int bytes;
-    while ((bytes = esp_http_client_read(client, buf, sizeof(buf))) > 0) {
-      body.append(buf, static_cast<size_t>(bytes));
-      if (body.size() >= MAX_CATALOG_BYTES) break;
-    }
-  }
-
-  esp_http_client_close(client);
-  esp_http_client_cleanup(client);
-
   if (body.empty()) {
+    LOG_E("OPDS empty body");
     snprintf(error_msg, error_size, "Empty response");
     return false;
   }
@@ -228,6 +337,19 @@ OPDS::fetch_catalog(const char           * url,
 
     pugi::xml_node author_node = entry.child("author");
     if (author_node) e.author = author_node.child_value("name");
+
+    // Publication year — try dc:date and dcterms:issued (first 4 chars)
+    {
+      const char * date_str = nullptr;
+      if (entry.child("dc:date"))         date_str = entry.child_value("dc:date");
+      else if (entry.child("dcterms:issued")) date_str = entry.child_value("dcterms:issued");
+      if (date_str && date_str[0] >= '1' && date_str[0] <= '2' &&
+          date_str[1] >= '0' && date_str[1] <= '9' &&
+          date_str[2] >= '0' && date_str[2] <= '9' &&
+          date_str[3] >= '0' && date_str[3] <= '9') {
+        e.year = std::string(date_str, 4);
+      }
+    }
 
     // Find an epub+zip acquisition link, or a navigation/subsection link.
     for (pugi::xml_node link : entry.children("link")) {
@@ -380,10 +502,21 @@ OPDS::download_book(const char * url,
     return true;       // Cancellation is not an error; controller handles it
   }
 
+  // bytes < 0 can mean a genuine read error OR a TLS close_notify that the
+  // underlying mbedTLS layer surfaces as an error even after all data has
+  // been delivered.  Treat as success when the amount written matches the
+  // announced Content-Length, or (when unknown) when at least some bytes
+  // were received.
   if (bytes < 0) {
-    remove(filepath);
-    snprintf(error_msg, error_size, "Read error");
-    return false;
+    bool complete = (content_length > 0)
+                  ? (bytes_done >= content_length)
+                  : (bytes_done > 0);
+    if (!complete) {
+      remove(filepath);
+      snprintf(error_msg, error_size, "Read error (got %lld of %lld B)",
+               (long long) bytes_done, (long long) content_length);
+      return false;
+    }
   }
 
   return true;
