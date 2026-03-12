@@ -67,6 +67,10 @@ OPDS::set_auth_header(void * client_ptr, const char * user, const char * pwd)
 }
 
 /// Resolve a potentially-relative @p href against @p base catalog URL.
+/// Also upgrades http:// → https:// when the base uses HTTPS and the href
+/// refers to the same hostname — avoids a 301 redirect round-trip through
+/// Traefik that arrives with a TLS close_notify before esp_http_client can
+/// parse the response headers.
 static std::string
 resolve_url(const std::string & base, const char * href)
 {
@@ -74,8 +78,27 @@ resolve_url(const std::string & base, const char * href)
 
   // Already absolute
   if (strncmp(href, "http://",  7) == 0 ||
-      strncmp(href, "https://", 8) == 0)
+      strncmp(href, "https://", 8) == 0) {
+    // Upgrade http:// → https:// when base is https:// and hostname matches.
+    if (strncmp(base.c_str(), "https://", 8) == 0 &&
+        strncmp(href, "http://", 7) == 0) {
+      // Extract hostname from base (after "https://", up to '/', ':', or end)
+      const char * bh = base.c_str() + 8;
+      const char * be = bh;
+      while (*be && *be != '/' && *be != ':') ++be;
+
+      // Extract hostname from href (after "http://", up to '/', ':', or end)
+      const char * hh = href + 7;
+      const char * he = hh;
+      while (*he && *he != '/' && *he != ':') ++he;
+
+      if ((be - bh) == (he - hh) && strncmp(bh, hh, static_cast<size_t>(be - bh)) == 0) {
+        // Same host: rewrite scheme
+        return std::string("https://") + (href + 7);
+      }
+    }
     return std::string(href);
+  }
 
   // Find end of scheme+host in base ("https://host")
   const char * p = base.c_str();
@@ -242,6 +265,8 @@ OPDS::fetch_catalog(const char           * url,
     ctx.body      = &body;
     ctx.max_bytes = MAX_CATALOG_BYTES;
 
+    LOG_I("OPDS do_one_request: '%s'", req_url);
+
     cfg.url                   = req_url;
     cfg.event_handler         = opds_http_event;
     cfg.user_data             = &ctx;
@@ -265,6 +290,33 @@ OPDS::fetch_catalog(const char           * url,
     LOG_I("OPDS perform url=%.80s rc=%s status=%d loc='%s' body=%u B fin=%d",
           req_url, esp_err_to_name(err), stat, ctx.location,
           (unsigned) body.size(), (int) ctx.finished);
+
+    // If perform() failed and no data arrived at all, the TLS session was
+    // probably stale (close_notify on a reused connection before any response
+    // headers were sent).  Retry up to 2 more times with fresh connections.
+    for (int attempt = 0; attempt < 2 && (err != ESP_OK && stat <= 0 && body.empty() && !ctx.location[0]); ++attempt) {
+      LOG_I("OPDS stale-connection retry #%d for '%s'", attempt + 1, req_url);
+      esp_http_client_cleanup(cl);
+      cl = nullptr;
+
+      ctx.location[0] = '\0';
+      ctx.finished    = false;
+      // Brief pause so the TCP stack can finish tearing down the previous
+      // connection — avoids the close_notify from the old session being read
+      // at the start of the new TLS handshake.
+      vTaskDelay(pdMS_TO_TICKS(300));
+
+      cl = esp_http_client_init(&cfg);
+      if (!cl) { LOG_E("OPDS retry init NULL"); return -2; }
+      if (user && user[0]) set_auth_header(cl, user, pwd);
+      esp_http_client_set_header(cl, "Accept",
+        "application/atom+xml,application/xml,text/xml");
+      err  = esp_http_client_perform(cl);
+      stat = esp_http_client_get_status_code(cl);
+      LOG_I("OPDS retry#%d rc=%s status=%d body=%u B fin=%d",
+            attempt + 1, esp_err_to_name(err), stat,
+            (unsigned) body.size(), (int) ctx.finished);
+    }
 
     // If perform() returned an error but we already received body data via
     // ON_DATA events, the full response was delivered and the TLS close_notify

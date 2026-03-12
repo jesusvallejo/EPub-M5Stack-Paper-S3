@@ -176,6 +176,11 @@ OPDSController::leave(bool going_to_deep_sleep)
 #if EPUB_INKPLATE_BUILD
   // Make sure WiFi is released on any exit path
   wifi.stop();
+  // Restart the page-location worker threads that were killed in
+  // connect_and_fetch() before WiFi started.  Without this, a second
+  // entry into OPDS (or any book open) would call abort_threads() on
+  // non-joinable threads and trigger std::terminate() → abort().
+  page_locs.setup();
 #endif
 }
 

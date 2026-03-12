@@ -1,6 +1,8 @@
 #define __WIFI__ 1
 #include "controllers/wifi.hpp"
 
+static const char * TAG = "WIFI";
+
 #if EPUB_INKPLATE_BUILD
 
 #include "freertos/FreeRTOS.h"

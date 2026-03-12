@@ -476,28 +476,34 @@ PageLocs::setup()
 void
 PageLocs::abort_threads()
 {
-  RetrieveQueueData retrieve_queue_data;
-  retrieve_queue_data = {
-    .req           = RetrieveReq::ABORT,
-    .itemref_index = 0
-  };
-  LOG_D("abort_threads: Sending ABORT to Retriever");
-  QUEUE_SEND(retrieve_queue, retrieve_queue_data, 0);
+  if (retriever_thread.joinable()) {
+    RetrieveQueueData retrieve_queue_data;
+    retrieve_queue_data = {
+      .req           = RetrieveReq::ABORT,
+      .itemref_index = 0
+    };
+    LOG_D("abort_threads: Sending ABORT to Retriever");
+    QUEUE_SEND(retrieve_queue, retrieve_queue_data, 0);
+    retriever_thread.join();
+    retriever_thread = std::thread();
+  } else {
+    LOG_D("abort_threads: Retriever not running, skipping");
+  }
 
-  retriever_thread.join();
-  retriever_thread.~thread();
-  
-  StateQueueData state_queue_data;
-  state_queue_data = {
-    .req           = StateReq::ABORT,
-    .itemref_index = 0,
-    .itemref_count = 0
-  };
-  LOG_D("abort_threads: Sending ABORT to State");
-  QUEUE_SEND(state_queue, state_queue_data, 0);
-
-  state_thread.join();
-  state_thread.~thread();
+  if (state_thread.joinable()) {
+    StateQueueData state_queue_data;
+    state_queue_data = {
+      .req           = StateReq::ABORT,
+      .itemref_index = 0,
+      .itemref_count = 0
+    };
+    LOG_D("abort_threads: Sending ABORT to State");
+    QUEUE_SEND(state_queue, state_queue_data, 0);
+    state_thread.join();
+    state_thread = std::thread();
+  } else {
+    LOG_D("abort_threads: State not running, skipping");
+  }
 }
 
 class PageLocsInterp : public HTMLInterpreter 
