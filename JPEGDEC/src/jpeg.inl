@@ -1823,7 +1823,7 @@ static int JPEGDecodeMCU_P(JPEGIMAGE *pJPEG, int iMCU, int *iDCPredictor)
     unsigned short *pFast;
     uint32_t usHuff; // this prevents an unnecessary & 65535 for shorts
     signed int iPositive, iNegative, iCoeff;
-    signed short *pMCU = &pJPEG->sMCUs[iMCU & 0xffffff];
+    signed short *pMCU = &pJPEG->sMCUs[iMCU]; // no mask: MCU_SKIP=-8 must resolve to sMCUs[-8] (valid head padding in sUnalignedMCUs)
     uint32_t ulBitOff;
     my_ulong ulCode, ulBits, ulTemp; // local copies to allow compiler to use register vars
     uint8_t *pBuf;

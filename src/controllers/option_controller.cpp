@@ -406,9 +406,9 @@ static MenuViewer::MenuEntry menu[] = {
   { MenuViewer::Icon::RETURN,      "Return",  CommonActions::return_to_last , false, true  },
   { MenuViewer::Icon::BOOK,        "Last",    CommonActions::show_last_book , true,  true  },
   { MenuViewer::Icon::WIFI,        "WiFi",    wifi_mode                     , true,  true  },
-  { MenuViewer::Icon::USB,         "USB",     usb_emulation_mode            , true,  true  },
+  { MenuViewer::Icon::USB,         " USB",     usb_emulation_mode            , true,  true  },
   { MenuViewer::Icon::OPDS,        "OPDS",    opds_mode                     , true,  true  },
-  { MenuViewer::Icon::POWEROFF,    "Power",   power_off_mode                , true,  true  },
+  { MenuViewer::Icon::POWEROFF,    "Sleep",   power_off_mode                , true,  true  },
   { MenuViewer::Icon::NEXT_MENU,   "More",    goto_next                     , true,  true  },
   { MenuViewer::Icon::END_MENU,     nullptr,   nullptr                       , false, false }
 };
@@ -637,9 +637,8 @@ OptionController::input_event(const EventMgr::Event & event)
               false, true,
               "USB Drive Mode Active",
               "Your SD card is now shared with your computer.\n\n"
-              "\xe2\x9a\xa0  Before unplugging the USB cable, you MUST first safely "
-              "eject / unmount the drive from your computer.\n\n"
-              "Unplugging without ejecting can corrupt your SD card and your books.");
+              "Before unplugging the USB cable, you MUST first safely "
+              "eject / unmount the drive from your computer.\n\n");
           USBEmulation::run_msc_session(card);
         } else {
           LOG_E("Card disappeared before USB session could start.");

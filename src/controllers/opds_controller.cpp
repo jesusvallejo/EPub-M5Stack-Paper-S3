@@ -479,7 +479,7 @@ OPDSController::start_download(int idx)
   // Footer hint
   fmt.font_size   = 9;
   fmt.margin_top  = 0;
-  fmt.screen_top  = static_cast<int16_t>(PROGBAR_Y + PROGBAR_H + 80);
+  fmt.screen_top  = static_cast<int16_t>(PROGBAR_Y + PROGBAR_H + 120);
   fmt.screen_bottom = 5;
   page.set_limits(fmt);
   page.new_paragraph(fmt);
