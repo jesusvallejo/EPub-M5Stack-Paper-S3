@@ -406,7 +406,7 @@ static MenuViewer::MenuEntry menu[] = {
   { MenuViewer::Icon::RETURN,      "Return",  CommonActions::return_to_last , false, true  },
   { MenuViewer::Icon::BOOK,        "Last",    CommonActions::show_last_book , true,  true  },
   { MenuViewer::Icon::WIFI,        "WiFi",    wifi_mode                     , true,  true  },
-  { MenuViewer::Icon::USB,         " USB",     usb_emulation_mode            , true,  true  },
+  { MenuViewer::Icon::USB,         "USB",     usb_emulation_mode            , true,  true  },
   { MenuViewer::Icon::OPDS,        "OPDS",    opds_mode                     , true,  true  },
   { MenuViewer::Icon::POWEROFF,    "Sleep",   power_off_mode                , true,  true  },
   { MenuViewer::Icon::NEXT_MENU,   "More",    goto_next                     , true,  true  },
