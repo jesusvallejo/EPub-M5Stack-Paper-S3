@@ -60,10 +60,41 @@ static int8_t old_dir_view;
   static int8_t show_heap;
 #endif
 
+// Paper S3 screen is 540 px wide — use shorter captions so the form fits.
+#if defined(BOARD_TYPE_PAPER_S3)
+  static constexpr const char * CAP_TIMEOUT    = "Sleep Timeout :";
+  static constexpr const char * CAP_DIR_VIEW   = "Book List View :";
+  static constexpr const char * CAP_BATTERY    = "Battery Level :";
+  static constexpr const char * CAP_SHOW_TITLE = "Show Title (*):";
+  static constexpr const char * CAP_RTC_CORNER = "Right Corner :";
+  static constexpr const char * CAP_HEAP       = "Heap Sizes :";
+  static constexpr const char * CAP_FONT_SIZE  = "Font Size (*):";
+  static constexpr const char * CAP_USE_FONTS  = "Use Book Fonts (*):";
+  static constexpr const char * CAP_DEF_FONT   = "Font (*):";
+  static constexpr const char * CAP_IMAGES     = "Show Images (*):";
+  static constexpr const char * MSG_MAIN_FMT   = "(*) Triggers page layout rebuild";
+  static constexpr const char * MSG_FONT_FMT   = "(*) E-book default values";
+#else
+  static constexpr const char * CAP_TIMEOUT    = "Minutes Before Sleeping :";
+  static constexpr const char * CAP_DIR_VIEW   = "Books Directory View :";
+  static constexpr const char * CAP_BATTERY    = "Show Battery Level :";
+  static constexpr const char * CAP_SHOW_TITLE = "Show Title (*):";
+  static constexpr const char * CAP_RTC_CORNER = "Right Bottom Corner :";
+  static constexpr const char * CAP_HEAP       = "Show Heap Sizes :";
+  static constexpr const char * CAP_FONT_SIZE  = "Default Font Size (*):";
+  static constexpr const char * CAP_USE_FONTS  = "Use Fonts in E-books (*):";
+  static constexpr const char * CAP_DEF_FONT   = "Default Font (*):";
+  static constexpr const char * CAP_IMAGES     = "Show Images in E-books (*):";
+  static constexpr const char * MSG_MAIN_FMT   = "(*) Will trigger e-book pages location recalc.";
+  static constexpr const char * MSG_FONT_FMT   = "(*) Used as e-book default values.";
+#endif
+
 #if defined(BOARD_TYPE_PAPER_S3)
   // On Paper S3 the display is always driven in 4-bit grayscale via epdiy,
   // so the Pixel Resolution setting is not exposed in the UI.
-  static constexpr int8_t MAIN_FORM_SIZE = 7;
+  // The orientation (uSDCard / Buttons Position) entry is also hidden because
+  // the Paper S3 has a fixed form factor and needs no rotational calibration.
+  static constexpr int8_t MAIN_FORM_SIZE = 6;
 #elif INKPLATE_6PLUS || TOUCH_TRIAL
   static constexpr int8_t MAIN_FORM_SIZE = 8;
 #else
@@ -71,22 +102,25 @@ static int8_t old_dir_view;
 #endif
 
 static FormEntry main_params_form_entries[MAIN_FORM_SIZE] = {
-  { .caption = "Minutes Before Sleeping :",  .u = { .ch = { .value = &timeout,                .choice_count = 3, .choices = FormChoiceField::timeout_choices        } }, .entry_type = FormEntryType::HORIZONTAL  },
-  { .caption = "Books Directory View :",     .u = { .ch = { .value = &dir_view,               .choice_count = 2, .choices = FormChoiceField::dir_view_choices       } }, .entry_type = FormEntryType::HORIZONTAL  },
+  { .caption = CAP_TIMEOUT,  .u = { .ch = { .value = &timeout,                .choice_count = 3, .choices = FormChoiceField::timeout_choices        } }, .entry_type = FormEntryType::HORIZONTAL  },
+  { .caption = CAP_DIR_VIEW, .u = { .ch = { .value = &dir_view,               .choice_count = 2, .choices = FormChoiceField::dir_view_choices       } }, .entry_type = FormEntryType::HORIZONTAL  },
+  // Paper S3 has a fixed form factor – no uSDCard slot position to configure.
+  #if !defined(BOARD_TYPE_PAPER_S3)
   #if INKPLATE_6PLUS || TOUCH_TRIAL
     { .caption = "uSDCard Position (*):",    .u = { .ch = { .value = (int8_t *) &orientation, .choice_count = 4, .choices = FormChoiceField::orientation_choices    } }, .entry_type = FormEntryType::VERTICAL    },
   #else
     { .caption = "Buttons Position (*):",    .u = { .ch = { .value = (int8_t *) &orientation, .choice_count = 3, .choices = FormChoiceField::orientation_choices    } }, .entry_type = FormEntryType::VERTICAL    },
   #endif
+  #endif // !BOARD_TYPE_PAPER_S3
   #if !defined(BOARD_TYPE_PAPER_S3)
     { .caption = "Pixel Resolution :",         .u = { .ch = { .value = (int8_t *) &resolution,  .choice_count = 2, .choices = FormChoiceField::resolution_choices     } }, .entry_type = FormEntryType::HORIZONTAL  },
   #endif
-  { .caption = "Show Battery Level :",       .u = { .ch = { .value = &show_battery,           .choice_count = 4, .choices = FormChoiceField::battery_visual_choices } }, .entry_type = FormEntryType::VERTICAL    },
-  { .caption = "Show Title (*):",            .u = { .ch = { .value = &show_title,             .choice_count = 2, .choices = FormChoiceField::yes_no_choices         } }, .entry_type = FormEntryType::HORIZONTAL  },
+  { .caption = CAP_BATTERY,    .u = { .ch = { .value = &show_battery,           .choice_count = 4, .choices = FormChoiceField::battery_visual_choices } }, .entry_type = FormEntryType::VERTICAL    },
+  { .caption = CAP_SHOW_TITLE, .u = { .ch = { .value = &show_title,             .choice_count = 2, .choices = FormChoiceField::yes_no_choices         } }, .entry_type = FormEntryType::HORIZONTAL  },
   #if DATE_TIME_RTC
-    { .caption = "Right Bottom Corner :",    .u = { .ch = { .value = &show_heap_or_rtc,       .choice_count = 3, .choices = FormChoiceField::right_corner_choices   } }, .entry_type = FormEntryType::VERTICAL    },
+    { .caption = CAP_RTC_CORNER, .u = { .ch = { .value = &show_heap_or_rtc,       .choice_count = 3, .choices = FormChoiceField::right_corner_choices   } }, .entry_type = FormEntryType::VERTICAL    },
   #else
-    { .caption = "Show Heap Sizes :",        .u = { .ch = { .value = &show_heap,              .choice_count = 2, .choices = FormChoiceField::yes_no_choices         } }, .entry_type = FormEntryType::HORIZONTAL  },
+    { .caption = CAP_HEAP,       .u = { .ch = { .value = &show_heap,              .choice_count = 2, .choices = FormChoiceField::yes_no_choices         } }, .entry_type = FormEntryType::HORIZONTAL  },
   #endif
   #if INKPLATE_6PLUS || TOUCH_TRIAL
     { .caption = " DONE ",                   .u = { .ch = { .value = &done,                   .choice_count = 0, .choices = nullptr                                 } }, .entry_type = FormEntryType::DONE        }
@@ -99,10 +133,10 @@ static FormEntry main_params_form_entries[MAIN_FORM_SIZE] = {
   static constexpr int8_t FONT_FORM_SIZE = 4;
 #endif
 static FormEntry font_params_form_entries[FONT_FORM_SIZE] = {
-  { .caption = "Default Font Size (*):",      .u = { .ch = { .value = &font_size,          .choice_count = 4, .choices = FormChoiceField::font_size_choices } }, .entry_type = FormEntryType::HORIZONTAL },
-  { .caption = "Use Fonts in E-books (*):",   .u = { .ch = { .value = &use_fonts_in_books, .choice_count = 2, .choices = FormChoiceField::yes_no_choices    } }, .entry_type = FormEntryType::HORIZONTAL },
-  { .caption = "Default Font (*):",           .u = { .ch = { .value = &default_font,       .choice_count = 8, .choices = FormChoiceField::font_choices      } }, .entry_type = FormEntryType::VERTICAL   },
-  { .caption = "Show Images in E-books (*):", .u = { .ch = { .value = &show_images,        .choice_count = 2, .choices = FormChoiceField::yes_no_choices    } }, .entry_type = FormEntryType::HORIZONTAL },
+  { .caption = CAP_FONT_SIZE,  .u = { .ch = { .value = &font_size,          .choice_count = 4, .choices = FormChoiceField::font_size_choices } }, .entry_type = FormEntryType::HORIZONTAL },
+  { .caption = CAP_USE_FONTS,  .u = { .ch = { .value = &use_fonts_in_books, .choice_count = 2, .choices = FormChoiceField::yes_no_choices    } }, .entry_type = FormEntryType::HORIZONTAL },
+  { .caption = CAP_DEF_FONT,   .u = { .ch = { .value = &default_font,       .choice_count = 8, .choices = FormChoiceField::font_choices      } }, .entry_type = FormEntryType::VERTICAL   },
+  { .caption = CAP_IMAGES,     .u = { .ch = { .value = &show_images,        .choice_count = 2, .choices = FormChoiceField::yes_no_choices    } }, .entry_type = FormEntryType::HORIZONTAL },
   #if INKPLATE_6PLUS || TOUCH_TRIAL
     { .caption = " DONE ",                    .u = { .ch = { .value = &done,               .choice_count = 0, .choices = nullptr                            } }, .entry_type = FormEntryType::DONE       }
   #endif
@@ -165,7 +199,7 @@ main_parameters()
   form_viewer.show(
     main_params_form_entries, 
     MAIN_FORM_SIZE, 
-    "(*) Will trigger e-book pages location recalc.");
+    MSG_MAIN_FMT);
 
   option_controller.set_main_form_is_shown();
 }
@@ -187,7 +221,7 @@ default_parameters()
   form_viewer.show(
     font_params_form_entries, 
     FONT_FORM_SIZE, 
-    "(*) Used as e-book default values.");
+    MSG_FONT_FMT);
 
   option_controller.set_font_form_is_shown();
 }
@@ -563,14 +597,16 @@ OptionController::input_event(const EventMgr::Event & event)
         #if !defined(BOARD_TYPE_PAPER_S3)
           if ((old_orientation != orientation) || 
               (old_resolution  != resolution )) {
+            menu_viewer.show(menu, 2, true);
+          }
+          else {
+            menu_viewer.clear_highlight();
+          }
         #else
-          if (old_orientation != orientation) {
+          // Always re-show the menu on Paper S3 so that form content
+          // (which renders below the menu bar) is properly cleared.
+          menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
         #endif
-          menu_viewer.show(menu, 2, true);
-        }
-        else {
-          menu_viewer.clear_highlight();
-        }
       // }
     }
   }
@@ -602,7 +638,11 @@ OptionController::input_event(const EventMgr::Event & event)
           }
         }
       // }
-      menu_viewer.clear_highlight();
+      #if defined(BOARD_TYPE_PAPER_S3)
+        menu_viewer.show(on_sub_menu ? sub_menu : menu, 0, true);
+      #else
+        menu_viewer.clear_highlight();
+      #endif
     }
   }
 

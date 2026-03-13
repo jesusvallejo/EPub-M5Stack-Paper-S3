@@ -614,7 +614,13 @@ class FormViewer
         }
 
         width = all_captions_width + all_fields_width + 35;
-        const int16_t right_xpos    = (Screen::get_width() >> 1) + (width >> 1);
+        // Centre the layout, then clamp so content never overflows the form box
+        // (box spans x=22 to x=Screen::get_width()-22).
+        //   captions leftmost = right_xpos - width         (must be >= 22)
+        //   fields  rightmost = right_xpos - 10            (must be <= Screen::get_width()-22)
+        int16_t right_xpos = (Screen::get_width() >> 1) + ((int16_t)width >> 1);
+        if (right_xpos < (int16_t)width + 22)          right_xpos = (int16_t)width + 22;
+        if (right_xpos > Screen::get_width() - 12)     right_xpos = Screen::get_width() - 12;
 
         int16_t       current_ypos  = TOP_YPOS + 20;
         int16_t       caption_right = right_xpos - all_fields_width - 35;
