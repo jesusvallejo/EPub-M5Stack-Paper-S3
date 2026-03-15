@@ -78,7 +78,8 @@ class EventMgr
     
     void loop();
 
-    const Event & get_event();
+    const Event & get_event();   ///< Blocking — waits up to 15 s for an event
+    const Event & peek_event();  ///< Non-blocking — returns NONE immediately if queue is empty
     
     #if EPUB_LINUX_BUILD
       #if TOUCH_TRIAL

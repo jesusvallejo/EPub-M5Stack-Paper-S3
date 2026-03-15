@@ -58,14 +58,17 @@ class OPDSController
     static const int16_t AUTHOR_FONT_SIZE   =   9;
     static const int16_t TITLE_YPOS         =  25;
     static const int16_t FIRST_ENTRY_YPOS   =  70;
-    static const int16_t ENTRY_HEIGHT       =  38; ///< px per catalog entry (title + author)
+    static const int16_t ENTRY_HEIGHT       =  55; ///< px per catalog entry (title + author lines)
+    static const int16_t ENTRY_AUTHOR_YOFFSET = 27; ///< y-offset inside an entry for the author line
     static const int16_t ENTRY_MARGIN_LEFT  =  15;
-    static const int16_t FOOTER_RESERVE     =  60; ///< px reserved at the bottom for nav hints
+    static const int16_t FOOTER_RESERVE     = 100; ///< px reserved at the bottom for nav hints
 
     // Progress-bar drawing
     static const int16_t PROGBAR_Y          = 480; ///< Centre-screen Y for progress bar
     static const int16_t PROGBAR_H          =  28;
     static const int16_t PROGBAR_MARGIN     =  40; ///< Left/right margin for the bar
+    static const int16_t CANCEL_BTN_Y       = 580; ///< Top Y of the cancel touch area
+    static const int16_t CANCEL_BTN_H       =  60; ///< Height of the cancel touch area
 
     // -----------------------------------------------------------------------
     // State
@@ -110,6 +113,8 @@ class OPDSController
     void show_progress(int64_t done, int64_t total);
     void show_done();
     void show_error();
+
+    bool is_on_device(const OPDSEntry & e) const; ///< true if the epub file already exists on the SD card
 };
 
 #if __OPDS_CONTROLLER__

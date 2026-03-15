@@ -346,6 +346,21 @@ const EventMgr::Event & EventMgr::get_event()
   return event;
 }
 
+const EventMgr::Event & EventMgr::peek_event()
+{
+  static Event event;
+  event.kind = EventKind::NONE;
+
+#if EPUB_INKPLATE_BUILD
+  if (input_event_queue != nullptr) {
+    if (!xQueueReceive(input_event_queue, &event, 0)) {
+      event.kind = EventKind::NONE; // no event pending
+    }
+  }
+#endif
+  return event;
+}
+
 void EventMgr::set_orientation(Screen::Orientation) {}
 
 #endif // BOARD_TYPE_PAPER_S3

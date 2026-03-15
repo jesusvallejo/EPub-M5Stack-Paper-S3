@@ -232,7 +232,28 @@
     return event;
   }
 
+  const EventMgr::Event &
+  EventMgr::peek_event()
+  {
+    static Event event;
+    event.kind = EventKind::NONE;
+    if (touchpad_event_queue != nullptr) {
+      if (!xQueueReceive(touchpad_event_queue, &event, 0)) {
+        event.kind = EventKind::NONE;
+      }
+    }
+    return event;
+  }
+
 #else
+
+  // Linux stub — downloads don't block the event loop on Linux
+  const EventMgr::Event & EventMgr::peek_event()
+  {
+    static Event event;
+    event.kind = EventKind::NONE;
+    return event;
+  }
 
   #include "screen.hpp"
 

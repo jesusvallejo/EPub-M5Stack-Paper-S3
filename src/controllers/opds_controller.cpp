@@ -7,6 +7,7 @@
 
 #include "controllers/app_controller.hpp"
 #include "controllers/common_actions.hpp"
+#include "controllers/event_mgr.hpp"
 #include "controllers/wifi.hpp"
 
 #include "viewers/page.hpp"
@@ -25,6 +26,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <sys/stat.h>
 
 #if EPUB_INKPLATE_BUILD
   #include "esp_system.h"
@@ -250,9 +252,12 @@ OPDSController::input_event(const EventMgr::Event & event)
       if (msg_viewer.confirm(event, ok)) {
         if (ok) {
           start_download(selected_idx);
-          // start_download sets state to DONE or ERROR upon return
+          // start_download sets state to DONE, SHOWING_LIST (cancelled), or ERROR
           if (state == State::DONE) {
             show_done();
+          } else if (state == State::SHOWING_LIST) {
+            // User cancelled — silently return to the catalog list
+            show_list();
           } else {
             show_error();
           }
@@ -375,9 +380,9 @@ OPDSController::connect_and_fetch()
     return;
   }
 
-  // Calculate entries per page (leave FOOTER_RESERVE px for nav hint)
+  // Calculate entries per page (leave FOOTER_RESERVE px for nav hint, minus 1 for breathing room)
   entries_per_page =
-    (Screen::get_height() - FIRST_ENTRY_YPOS - FOOTER_RESERVE) / ENTRY_HEIGHT;
+    (Screen::get_height() - FIRST_ENTRY_YPOS - FOOTER_RESERVE) / ENTRY_HEIGHT - 1;
   if (entries_per_page < 1) entries_per_page = 1;
 
   current_page = 0;
@@ -412,7 +417,7 @@ OPDSController::fetch_page(const std::string & url)
   }
 
   entries_per_page =
-    (Screen::get_height() - FIRST_ENTRY_YPOS - FOOTER_RESERVE) / ENTRY_HEIGHT;
+    (Screen::get_height() - FIRST_ENTRY_YPOS - FOOTER_RESERVE) / ENTRY_HEIGHT - 1;
   if (entries_per_page < 1) entries_per_page = 1;
 
   state = State::SHOWING_LIST;
@@ -476,10 +481,26 @@ OPDSController::start_download(int idx)
   const int max_w   = Screen::get_width() - 2 * PROGBAR_MARGIN;
   page.put_highlight(Dim(max_w, PROGBAR_H), Pos(bar_x, PROGBAR_Y));
 
+  // Cancel button
+  const int16_t btn_w  = 200;
+  const int16_t btn_x  = static_cast<int16_t>((Screen::get_width() - btn_w) / 2);
+  page.put_highlight(Dim(btn_w, CANCEL_BTN_H), Pos(btn_x, CANCEL_BTN_Y));
+
+  fmt.font_size     = ENTRY_FONT_SIZE;
+  fmt.margin_top    = 0;
+  fmt.align         = CSS::Align::CENTER;
+  fmt.screen_top    = static_cast<int16_t>(CANCEL_BTN_Y + 4);
+  fmt.screen_bottom = static_cast<int16_t>(Screen::get_height() - (CANCEL_BTN_Y + CANCEL_BTN_H));
+  page.set_limits(fmt);
+  page.new_paragraph(fmt);
+  std::string cancel_lbl = "Cancel";
+  page.add_text(cancel_lbl, fmt);
+  page.end_paragraph(fmt);
+
   // Footer hint
   fmt.font_size   = 9;
   fmt.margin_top  = 0;
-  fmt.screen_top  = static_cast<int16_t>(PROGBAR_Y + PROGBAR_H + 120);
+  fmt.screen_top  = static_cast<int16_t>(CANCEL_BTN_Y + CANCEL_BTN_H + 20);
   fmt.screen_bottom = 5;
   page.set_limits(fmt);
   page.new_paragraph(fmt);
@@ -514,13 +535,27 @@ OPDSController::start_download(int idx)
     }
 
     show_progress(done, total);
-    return true;   // no cancel support in first iteration
+
+    // Check for a tap on the Cancel button (non-blocking)
+    const EventMgr::Event & ev = event_mgr.peek_event();
+    if (ev.kind == EventMgr::EventKind::TAP &&
+        ev.y >= static_cast<uint16_t>(CANCEL_BTN_Y) &&
+        ev.y <  static_cast<uint16_t>(CANCEL_BTN_Y + CANCEL_BTN_H)) {
+      dl_cancelled = true;
+      return false;  // abort download
+    }
+
+    return true;
   };
 
   if (!opds.download_book(url.c_str(), user.c_str(), pwd.c_str(),
                           filepath.c_str(), progress_cb,
                           last_error, sizeof(last_error))) {
-    state = State::ERROR;
+    if (dl_cancelled) {
+      state = State::SHOWING_LIST;  // return to list quietly
+    } else {
+      state = State::ERROR;
+    }
   } else {
     state = State::DONE;
   }
@@ -604,31 +639,56 @@ OPDSController::show_list()
   int16_t ypos = FIRST_ENTRY_YPOS;
 
   for (int i = start_idx; i < end_idx; i++) {
-    std::string text;
-    if (entries[i].is_nav()) {
-      text = "[+] ";
-      text += entries[i].title;
+    const OPDSEntry & e = entries[i];
+
+    if (e.is_nav()) {
+      // Navigation entry — single centred line
+      std::string text = "[+] ";
+      text += e.title;
+      if (text.size() > 70) { text.resize(67); text += "..."; }
+
+      fmt.font_size     = ENTRY_FONT_SIZE;
+      fmt.screen_top    = ypos;
+      fmt.screen_bottom = static_cast<int16_t>(Screen::get_height() - (ypos + ENTRY_HEIGHT));
+      page.set_limits(fmt);
+      page.new_paragraph(fmt);
+      page.add_text(text, fmt);
+      page.end_paragraph(fmt);
     } else {
-      text = entries[i].title;
-      if (!entries[i].author.empty()) {
-        text += " \xe2\x80\x94 ";   // UTF-8 em-dash
-        text += entries[i].author;
+      // Book entry — title line + author/badge line
+      bool on_device = is_on_device(e);
+
+      // --- Title line ---
+      std::string title_text;
+      if (on_device) title_text = "[On device] ";
+      title_text += e.title;
+      if (title_text.size() > 70) { title_text.resize(67); title_text += "..."; }
+
+      fmt.font_size     = ENTRY_FONT_SIZE;
+      fmt.screen_top    = ypos;
+      fmt.screen_bottom = static_cast<int16_t>(Screen::get_height() - (ypos + ENTRY_AUTHOR_YOFFSET));
+      page.set_limits(fmt);
+      page.new_paragraph(fmt);
+      page.add_text(title_text, fmt);
+      page.end_paragraph(fmt);
+
+      // --- Author line (smaller, italic) ---
+      if (!e.author.empty()) {
+        std::string author_text = e.author;
+        if (!e.year.empty()) { author_text += "  (" ; author_text += e.year; author_text += ")"; }
+        if (author_text.size() > 70) { author_text.resize(67); author_text += "..."; }
+
+        fmt.font_size     = AUTHOR_FONT_SIZE;
+        fmt.font_style    = Fonts::FaceStyle::ITALIC;
+        fmt.screen_top    = static_cast<int16_t>(ypos + ENTRY_AUTHOR_YOFFSET);
+        fmt.screen_bottom = static_cast<int16_t>(Screen::get_height() - (ypos + ENTRY_HEIGHT));
+        page.set_limits(fmt);
+        page.new_paragraph(fmt);
+        page.add_text(author_text, fmt);
+        page.end_paragraph(fmt);
+        fmt.font_style    = Fonts::FaceStyle::NORMAL;
       }
     }
-    // Truncate to prevent WORD TOO LARGE when a title contains a long
-    // URL-like string with no spaces.
-    if (text.size() > 80) {
-      text.resize(77);
-      text += "...";
-    }
-
-    fmt.screen_top    = ypos;
-    fmt.screen_bottom = static_cast<int16_t>(Screen::get_height() - (ypos + ENTRY_HEIGHT));
-
-    page.set_limits(fmt);
-    page.new_paragraph(fmt);
-    page.add_text(text, fmt);
-    page.end_paragraph(fmt);
 
     ypos += ENTRY_HEIGHT;
   }
@@ -638,8 +698,8 @@ OPDSController::show_list()
   fmt.align         = CSS::Align::CENTER;
   fmt.screen_left   = 0;
   fmt.screen_right  = 0;
-  fmt.screen_top    = static_cast<int16_t>(Screen::get_height() - FOOTER_RESERVE + 6);
-  fmt.screen_bottom = 5;
+  fmt.screen_top    = static_cast<int16_t>(Screen::get_height() - FOOTER_RESERVE);
+  fmt.screen_bottom = 32;  // leave room for the ScreenBottom status bar (~30 px)
 
   page.set_limits(fmt);
   page.new_paragraph(fmt);
@@ -659,9 +719,9 @@ OPDSController::show_list()
     nav_hint += "Tap entry to download";
   }
   if (!url_stack.empty()) {
-    nav_hint += "   |   Swipe right to go back";
+    nav_hint += "\n   |   Swipe right to go back";
   }
-  nav_hint += "   |   Tap here to exit";
+  nav_hint += "\n   |   Tap here to exit";
 
   page.add_text(nav_hint, fmt);
   page.end_paragraph(fmt);
@@ -677,6 +737,8 @@ OPDSController::show_confirm()
   const OPDSEntry & e = entries[selected_idx];
   std::string msg = e.title;
   if (!e.author.empty()) { msg += "\n"; msg += e.author; }
+  if (!e.year.empty())   { msg += "  ("; msg += e.year; msg += ")"; }
+  if (is_on_device(e))   { msg += "\n\nAlready on device."; }
   msg_viewer.show(MsgViewer::MsgType::CONFIRM, true, false,
                   "Download this book?", msg.c_str());
 }
@@ -739,4 +801,14 @@ OPDSController::show_error()
 {
   msg_viewer.show(MsgViewer::MsgType::ALERT, true, true,
                   "OPDS Error", last_error);
+}
+
+bool
+OPDSController::is_on_device(const OPDSEntry & e) const
+{
+  if (e.is_nav() || e.download_url.empty()) return false;
+  std::string filename = filename_for_entry(e.title, e.download_url, e.author, e.year);
+  std::string filepath = std::string(BOOKS_FOLDER) + "/" + filename;
+  struct stat st;
+  return stat(filepath.c_str(), &st) == 0;
 }
