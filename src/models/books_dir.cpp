@@ -322,6 +322,124 @@ BooksDir::get_book_data_from_db_index(uint16_t idx)
   return &book;
 }
 
+// ---------------------------------------------------------------------------
+bool
+BooksDir::delete_book(uint16_t sorted_idx)
+{
+  if (sorted_idx >= sorted_index.size()) {
+    LOG_E("delete_book: idx %d out of range", sorted_idx);
+    return false;
+  }
+
+  // Retrieve the record so we have the filename and ID.
+  const EBookRecord * rec = get_book_data(sorted_idx);
+  if (rec == nullptr) return false;
+
+  std::string filepath = BOOKS_FOLDER "/";
+  filepath += rec->filename;
+  uint32_t book_id = rec->id;
+
+  // Look up the db_index for this sorted entry.
+  int i = 0; int16_t db_index = -1;
+  for (auto & entry : sorted_index) {
+    if (i == (int)sorted_idx) { db_index = (int16_t)entry.second.db_index; break; }
+    i++;
+  }
+  if (db_index == -1) return false;
+
+  // 1. Mark DB record as deleted.
+  db.set_current_idx(db_index);
+  db.set_deleted();
+
+  // 2. Delete the physical epub file.
+  if (remove(filepath.c_str()) != 0) {
+    LOG_E("delete_book: unable to remove file %s (errno %d)", filepath.c_str(), errno);
+    // Continue: clean the DB regardless.
+  }
+
+  // 3. Erase the NVS / position entry.
+  #if EPUB_INKPLATE_BUILD
+    nvs_mgr.erase(book_id);
+  #endif
+
+  // 4. Compact the DB and rebuild the sorted index.
+  int16_t temp = -1;
+  return refresh(nullptr, temp, false);
+}
+
+bool
+BooksDir::reload_book_metadata(uint16_t sorted_idx)
+{
+  if (sorted_idx >= sorted_index.size()) {
+    LOG_E("reload_book_metadata: idx %d out of range", sorted_idx);
+    return false;
+  }
+
+  // Look up the DB index.
+  int i = 0; int16_t db_index = -1;
+  for (auto & entry : sorted_index) {
+    if (i == (int)sorted_idx) { db_index = (int16_t)entry.second.db_index; break; }
+    i++;
+  }
+  if (db_index == -1) return false;
+
+  // Mark the record as deleted.  The epub file is still on disk, so
+  // refresh() will re-discover it as a "new" book and re-extract metadata.
+  db.set_current_idx(db_index);
+  db.set_deleted();
+
+  int16_t temp = -1;
+  return refresh(nullptr, temp, false);
+}
+
+bool
+BooksDir::set_read_status(uint16_t sorted_idx, uint8_t status)
+{
+  if (sorted_idx >= sorted_index.size()) {
+    LOG_E("set_read_status: idx %d out of range", sorted_idx);
+    return false;
+  }
+
+  uint32_t book_id;
+  if (!get_book_id(sorted_idx, book_id)) return false;
+
+  #if EPUB_INKPLATE_BUILD
+    // Store read_status in the NVS entry alongside the reading position.
+    // get_location() may fail if the book was never opened — that's fine;
+    // nvs_data stays zeroed and save_location() will create a new entry.
+    NVSMgr::NVSData nvs_data = {};
+    nvs_mgr.get_location(book_id, nvs_data);
+    nvs_data.read_status = status;
+    if (!nvs_mgr.save_location(book_id, nvs_data)) {
+      LOG_E("set_read_status: save_location failed");
+      return false;
+    }
+
+    // Update sorted_index key so the book moves to the back (status=1) or
+    // back to its normal position (status=0) immediately, without a full refresh().
+    for (auto & entry : sorted_index) {
+      if (entry.second.id == book_id) {
+        char new_front;
+        if (status != 0) {
+          new_front = '~';  // completed books sort after everything else
+        } else {
+          int8_t pos = nvs_mgr.get_pos(book_id);
+          new_front = (pos >= 0) ? 'a' + pos : 'z';
+        }
+        if (entry.first.front() != new_front) {
+          auto node = sorted_index.extract(entry.first);
+          node.key().front() = new_front;
+          sorted_index.insert(std::move(node));
+        }
+        break;
+      }
+    }
+  #endif
+
+  return true;
+}
+// ---------------------------------------------------------------------------
+
 bool
 BooksDir::refresh(char * book_filename, int16_t & book_index, bool force_init)
 {
@@ -385,7 +503,11 @@ BooksDir::refresh(char * book_filename, int16_t & book_index, bool force_init)
           int8_t pos = nvs_mgr.get_pos(partial_record->id);
           std::string title = " ";
           title += partial_record->title;
-          title.front() = (pos >= 0) ? 'a' + pos : 'z';
+          {
+            NVSMgr::NVSData nvs_loc = {};
+            nvs_mgr.get_location(partial_record->id, nvs_loc);
+            title.front() = (nvs_loc.read_status != 0) ? '~' : (pos >= 0) ? 'a' + pos : 'z';
+          }
         #else
           std::string title = "z";
           title += partial_record->title;
@@ -444,7 +566,11 @@ BooksDir::refresh(char * book_filename, int16_t & book_index, bool force_init)
             int8_t pos = nvs_mgr.get_pos(data->id);
             std::string title = " ";
             title += data->title;
-            title.front() = (pos >= 0) ? 'a' + pos : 'z';
+            {
+              NVSMgr::NVSData nvs_loc = {};
+              nvs_mgr.get_location(data->id, nvs_loc);
+              title.front() = (nvs_loc.read_status != 0) ? '~' : (pos >= 0) ? 'a' + pos : 'z';
+            }
           #else
             std::string title = "z";
             title += data->title;
@@ -611,7 +737,11 @@ BooksDir::refresh(char * book_filename, int16_t & book_index, bool force_init)
               int8_t pos = nvs_mgr.get_pos(the_book->id);
               std::string title = " ";
               title += the_book->title;
-              title.front() = (pos >= 0) ? 'a' + pos : 'z';
+              {
+                NVSMgr::NVSData nvs_loc = {};
+                nvs_mgr.get_location(the_book->id, nvs_loc);
+                title.front() = (nvs_loc.read_status != 0) ? '~' : (pos >= 0) ? 'a' + pos : 'z';
+              }
             #else
               std::string title = "z";
               title += the_book->title;

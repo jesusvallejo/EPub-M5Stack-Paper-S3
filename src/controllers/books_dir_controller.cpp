@@ -9,16 +9,117 @@
 #include "controllers/book_controller.hpp"
 #include "models/books_dir.hpp"
 #include "models/config.hpp"
-#include "models/nvs_mgr.hpp"
 #include "viewers/book_viewer.hpp"
 #include "viewers/linear_books_dir_viewer.hpp"
 #include "viewers/matrix_books_dir_viewer.hpp"
+#include "viewers/menu_viewer.hpp"
+#include "viewers/msg_viewer.hpp"
 #include "screen.hpp"
 
 #if EPUB_INKPLATE_BUILD
   #include "models/nvs_mgr.hpp"
   #include "esp.hpp"
 #endif
+
+// ---------------------------------------------------------------------------
+// Context menu for long-press on a book entry (touch devices only)
+// ---------------------------------------------------------------------------
+
+#if INKPLATE_6PLUS || TOUCH_TRIAL
+
+static void context_cancel()              { books_dir_controller.clear_context_menu();         }
+static void context_delete_confirm()      { books_dir_controller.show_delete_confirm();         }
+static void context_mark_complete_confirm() { books_dir_controller.show_mark_complete_confirm(); }
+static void context_reload_meta_confirm() { books_dir_controller.show_reload_meta_confirm();    }
+
+static MenuViewer::MenuEntry context_menu[] = {
+  { MenuViewer::Icon::RETURN,      "Cancel",  context_cancel,               false, true  },  // hidden, tap-outside closes menu
+  { MenuViewer::Icon::DELETE,      "Delete",  context_delete_confirm,       true,  true  },
+  { MenuViewer::Icon::CLR_HISTORY, "Mark Read",context_mark_complete_confirm,true, true  },
+  { MenuViewer::Icon::REFRESH,     "Reload",  context_reload_meta_confirm,  true,  true  },
+  { MenuViewer::Icon::END_MENU,    nullptr,   nullptr,                       false, false }
+};
+
+#endif // INKPLATE_6PLUS || TOUCH_TRIAL
+
+// ---------------------------------------------------------------------------
+// refresh_view() — re-display the book list without going through enter()
+// ---------------------------------------------------------------------------
+void
+BooksDirController::refresh_view()
+{
+  books_dir_viewer->setup();
+  screen.force_full_update();
+  if (current_book_index >= books_dir.get_book_count()) {
+    current_book_index = books_dir.get_book_count() - 1;
+  }
+  if (current_book_index < 0) current_book_index = 0;
+  current_book_index = books_dir_viewer->show_page_and_highlight(current_book_index);
+}
+
+// ---------------------------------------------------------------------------
+// Public helpers called by the static context-menu action functions
+// ---------------------------------------------------------------------------
+void
+BooksDirController::clear_context_menu()
+{
+  book_context_menu_shown = false;
+  context_action = ContextAction::NONE;
+  refresh_view();
+}
+
+void
+BooksDirController::show_delete_confirm()
+{
+  book_context_menu_shown = false;
+  context_action          = ContextAction::DELETE;
+
+  const BooksDir::EBookRecord * book = books_dir.get_book_data(context_book_index);
+  const char * title = (book != nullptr) ? book->title : "this book";
+
+  msg_viewer.show(
+    MsgViewer::MsgType::CONFIRM,
+    true, true,
+    "Delete Book",
+    "Delete \"%s\"? The epub file will be permanently removed.",
+    title);
+}
+
+void
+BooksDirController::show_mark_complete_confirm()
+{
+  book_context_menu_shown = false;
+  context_action          = ContextAction::MARK_COMPLETE;
+
+  const BooksDir::EBookRecord * book = books_dir.get_book_data(context_book_index);
+  const char * title = (book != nullptr) ? book->title : "this book";
+
+  msg_viewer.show(
+    MsgViewer::MsgType::CONFIRM,
+    true, true,
+    "Mark as Read",
+    "Mark \"%s\" as completed?",
+    title);
+}
+
+void
+BooksDirController::show_reload_meta_confirm()
+{
+  book_context_menu_shown = false;
+  context_action          = ContextAction::RELOAD_META;
+
+  const BooksDir::EBookRecord * book = books_dir.get_book_data(context_book_index);
+  const char * title = (book != nullptr) ? book->title : "this book";
+
+  msg_viewer.show(
+    MsgViewer::MsgType::CONFIRM,
+    true, true,
+    "Reload Metadata",
+    "Reload cover and metadata for \"%s\"?",
+    title);
+}
+
+// ---------------------------------------------------------------------------
 
 void
 BooksDirController::setup()
@@ -138,12 +239,13 @@ BooksDirController::save_last_book(const PageLocs::PageId & page_id, bool going_
 
     if ((current_book_index != -1) && books_dir.get_book_id(current_book_index, book_id)) {
 
-      NVSMgr::NVSData nvs_data = {
-        .offset        = page_id.offset,
-        .itemref_index = page_id.itemref_index,
-        .was_shown     = (uint8_t) (going_to_deep_sleep ? 1 : 0),
-        .filler1       = 0
-      };
+      // Preserve the existing read_status flag when saving position.
+      NVSMgr::NVSData nvs_data = {};
+      nvs_mgr.get_location(book_id, nvs_data);
+      nvs_data.offset        = page_id.offset;
+      nvs_data.itemref_index = page_id.itemref_index;
+      nvs_data.was_shown     = (uint8_t) (going_to_deep_sleep ? 1 : 0);
+      // nvs_data.read_status preserved from get_location() above.
 
       if (!nvs_mgr.save_location(book_id, nvs_data)) {
         LOG_E("Unable to save current ebook location");
@@ -232,6 +334,47 @@ BooksDirController::leave(bool going_to_deep_sleep)
 
     const BooksDir::EBookRecord * book;
 
+    // ---- Priority 1: Waiting for a confirmation dialog response ----
+    if (context_action != ContextAction::NONE) {
+      bool ok = false;
+      if (msg_viewer.confirm(event, ok)) {
+        if (ok) {
+          switch (context_action) {
+            case ContextAction::DELETE:
+              books_dir.delete_book(context_book_index);
+              // Book is gone; reset selection to avoid invalid index.
+              current_book_index   = 0;
+              last_read_book_index = -1;
+              break;
+            case ContextAction::MARK_COMPLETE:
+              books_dir.set_read_status(context_book_index, 1);
+              current_book_index = context_book_index;
+              break;
+            case ContextAction::RELOAD_META:
+              books_dir.reload_book_metadata(context_book_index);
+              current_book_index = 0; // index may shift after rescan
+              break;
+            default:
+              break;
+          }
+        }
+        context_action          = ContextAction::NONE;
+        book_context_menu_shown = false;
+        if (current_book_index >= books_dir.get_book_count())
+          current_book_index = (int16_t)(books_dir.get_book_count() - 1);
+        if (current_book_index < 0) current_book_index = 0;
+        refresh_view();
+      }
+      return;
+    }
+
+    // ---- Priority 2: Context menu is open ----
+    if (book_context_menu_shown) {
+      menu_viewer.event(event);
+      return;
+    }
+
+    // ---- Normal book list input ----
     switch (event.kind) {
       case EventMgr::EventKind::SWIPE_RIGHT:
         current_book_index = books_dir_viewer->prev_page();   
@@ -279,19 +422,23 @@ BooksDirController::leave(bool going_to_deep_sleep)
         break;
 
       case EventMgr::EventKind::HOLD:
-        current_book_index = books_dir_viewer->get_index_at(event.x, event.y);
-        if ((current_book_index >= 0) && (current_book_index < books_dir.get_book_count())) {
-          books_dir_viewer->highlight_book(current_book_index);
-          LOG_I("Book Index: %d", current_book_index);
+        context_book_index = books_dir_viewer->get_index_at(event.x, event.y);
+        if ((context_book_index >= 0) && (context_book_index < books_dir.get_book_count())) {
+          // Open the per-book context menu.
+          book_context_menu_shown = true;
+          menu_viewer.show(context_menu);
+          LOG_I("Context menu opened for book index: %d", context_book_index);
         }
         break;
 
       case EventMgr::EventKind::RELEASE:
-        #if INKPLATE_6PLUS
-          ESP::delay(1000);
-        #endif
-        
-        books_dir_viewer->clear_highlight();
+        // Only clear the list highlight when the context menu is NOT open.
+        if (!book_context_menu_shown) {
+          #if INKPLATE_6PLUS
+            ESP::delay(1000);
+          #endif
+          books_dir_viewer->clear_highlight();
+        }
         break;
 
       default:

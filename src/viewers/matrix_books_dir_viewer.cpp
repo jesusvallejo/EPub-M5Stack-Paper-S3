@@ -147,7 +147,14 @@ MatrixBooksDirViewer::show_page(int16_t page_nbr, int16_t hightlight_item_idx)
         page.set_limits(fmt);
         page.new_paragraph(fmt);
         #if EPUB_INKPLATE_BUILD
-          if (nvs_mgr.id_exists(book->id)) page.add_text("[Reading] ", fmt);
+          {
+            NVSMgr::NVSData nvs_data;
+            if (nvs_mgr.get_location(book->id, nvs_data) && nvs_data.read_status != 0) {
+              page.add_text("[Complete] ", fmt);
+            } else if (nvs_mgr.id_exists(book->id)) {
+              page.add_text("[Reading] ", fmt);
+            }
+          }
         #endif
         page.add_text(title, fmt);
         page.end_paragraph(fmt);
@@ -304,7 +311,14 @@ MatrixBooksDirViewer::highlight(int16_t item_idx)
   page.set_limits(fmt);
   page.new_paragraph(fmt);
   #if EPUB_INKPLATE_BUILD
-    if (nvs_mgr.id_exists(book->id)) page.add_text("[Reading] ", fmt);
+    {
+      NVSMgr::NVSData nvs_data;
+      if (nvs_mgr.get_location(book->id, nvs_data) && nvs_data.read_status != 0) {
+        page.add_text("[Complete] ", fmt);
+      } else if (nvs_mgr.id_exists(book->id)) {
+        page.add_text("[Reading] ", fmt);
+      }
+    }
   #endif
   page.add_text(title, fmt);
   page.end_paragraph(fmt);

@@ -8,9 +8,20 @@
 #include "controllers/app_controller.hpp"
 #include "controllers/books_dir_controller.hpp"
 #include "models/epub.hpp"
+#include "models/books_dir.hpp"
 #include "viewers/book_viewer.hpp"
 #include "viewers/page.hpp"
 #include "viewers/msg_viewer.hpp"
+
+// Helper: mark the current book as read (called when last page is reached).
+static void mark_current_book_read() {
+  if (page_locs.get_page_count() <= 0) return; // not yet fully computed
+  int16_t idx = books_dir_controller.get_current_book_index();
+  if (idx >= 0 && idx < books_dir.get_book_count()) {
+    books_dir.set_read_status((uint16_t)idx, 1);
+    LOG_I("Book idx %d marked as read (last page reached).", idx);
+  }
+}
 
 #if EPUB_INKPLATE_BUILD
   #include "nvs.h"
@@ -108,6 +119,8 @@ BookController::open_book_file(
             current_page_id.itemref_index = page_id->itemref_index;
             current_page_id.offset        = page_id->offset;
             book_viewer.show_page(current_page_id);
+          } else {
+            mark_current_book_read();
           }
         }
         else {
@@ -116,7 +129,9 @@ BookController::open_book_file(
             current_page_id.itemref_index = page_id->itemref_index;
             current_page_id.offset        = page_id->offset;
             book_viewer.show_page(current_page_id);
-          }           
+          } else {
+            mark_current_book_read();
+          }
         }
         break;
       
@@ -136,6 +151,8 @@ BookController::open_book_file(
               current_page_id.itemref_index = page_id->itemref_index;
               current_page_id.offset        = page_id->offset;
               book_viewer.show_page(current_page_id);
+            } else {
+              mark_current_book_read();
             }
           } else {           
             app_controller.set_controller(AppController::Ctrl::PARAM);
@@ -191,6 +208,8 @@ BookController::open_book_file(
           current_page_id.itemref_index = page_id->itemref_index;
           current_page_id.offset        = page_id->offset;
           book_viewer.show_page(current_page_id);
+        } else {
+          mark_current_book_read();
         }
         break;
 
@@ -204,6 +223,8 @@ BookController::open_book_file(
           current_page_id.itemref_index = page_id->itemref_index;
           current_page_id.offset        = page_id->offset;
           book_viewer.show_page(current_page_id);
+        } else {
+          mark_current_book_read();
         }
         break;
       

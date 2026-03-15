@@ -8,13 +8,22 @@
 
 #include "esp_err.h"
 #include "esp_sleep.h"
-#include "driver/rtc_io.h" // Essential for rtc_gpio functions
 #include "driver/gpio.h"
 #include "esp_vfs_fat.h"
 #include "driver/sdmmc_types.h"
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
 #include "sdmmc_cmd.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+// epdiy EPD power control (epd_poweron / epd_poweroff)
+extern "C" {
+  #include <epdiy.h>
+}
+
+#include "bm8563.hpp"
+extern BM8563 bm8563;
 
 InkPlatePlatform InkPlatePlatform::singleton;
 InkPlatePlatform & inkplate_platform = InkPlatePlatform::get_singleton();
@@ -25,6 +34,14 @@ static sdmmc_host_t   s_sd_host = SDSPI_HOST_DEFAULT();
 #if defined(BOARD_TYPE_PAPER_S3)
   Battery battery;
 #endif
+
+// ---------------------------------------------------------------------------
+// Shared touch-detection flag.
+// The touch_task in event_mgr_paper_s3.cpp sets this to true whenever it
+// detects a touch while the device is in light sleep, so that light_sleep()
+// can exit the sleep loop without relying solely on the hardware INT signal.
+// ---------------------------------------------------------------------------
+volatile bool paper_s3_touch_wakeup = false;
 
 bool InkPlatePlatform::setup(bool sd_card_init)
 {
@@ -83,41 +100,113 @@ bool InkPlatePlatform::setup(bool sd_card_init)
 
 bool InkPlatePlatform::light_sleep(uint32_t minutes_to_sleep, gpio_num_t gpio_num, int level)
 {
-  // TODO: Implement proper light sleep with GPIO + timer wake.
-  (void)minutes_to_sleep;
-  (void)gpio_num;
-  (void)level;
-  LOG_I("Paper S3 light_sleep stub; not sleeping (minutes=%u)", minutes_to_sleep);
-  return false;
+  static constexpr char const * TAG = "InkPlatePlatform";
+
+  // 1. Power off the EPD high-voltage supply.
+  //    E-ink is bistable: the displayed image persists without power.
+  epd_poweroff();
+
+  // 2. Configure the GT911 INT pin (gpio_num, typically GPIO48) as an
+  //    input with pull-up. GT911 drives it LOW when touch data is ready.
+  {
+    gpio_config_t io_conf = {};
+    io_conf.pin_bit_mask  = 1ULL << (uint32_t)gpio_num;
+    io_conf.mode          = GPIO_MODE_INPUT;
+    io_conf.pull_up_en    = GPIO_PULLUP_ENABLE;
+    io_conf.pull_down_en  = GPIO_PULLDOWN_DISABLE;
+    io_conf.intr_type     = GPIO_INTR_DISABLE;
+    gpio_config(&io_conf);
+  }
+
+  // 3. Enable GPIO wakeup from light sleep on the touch INT level.
+  gpio_int_type_t wake_type = (level == 0) ? GPIO_INTR_LOW_LEVEL
+                                            : GPIO_INTR_HIGH_LEVEL;
+  gpio_wakeup_enable(gpio_num, wake_type);
+  esp_sleep_enable_gpio_wakeup();
+
+  // 4. Reset the shared touch flag before entering the sleep loop.
+  paper_s3_touch_wakeup = false;
+
+  // 5. Sleep loop: wake every 5 seconds (timer fallback) OR immediately
+  //    when the GT911 INT assertion is received (GPIO wakeup).
+  //    On each timer wakeup, yield 150 ms so the touch_task can run and
+  //    set paper_s3_touch_wakeup if a touch is pending.
+  const uint64_t INTERVAL_US = 5000000ULL;  // 5-second wake interval
+  uint64_t total_us = (uint64_t)minutes_to_sleep * 60ULL * 1000000ULL;
+  uint64_t elapsed  = 0;
+
+  while (elapsed < total_us) {
+    uint64_t remaining  = total_us - elapsed;
+    uint64_t this_sleep = (remaining < INTERVAL_US) ? remaining : INTERVAL_US;
+
+    esp_sleep_enable_timer_wakeup(this_sleep);
+    esp_light_sleep_start();
+
+    elapsed += this_sleep;
+
+    esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+
+    // GPIO wakeup: GT911 INT asserted (touch event).
+    if (cause == ESP_SLEEP_WAKEUP_GPIO) {
+      LOG_I("Light sleep ended by GPIO%d (touch INT).", (int)gpio_num);
+      epd_poweron();
+      paper_s3_touch_wakeup = false;
+      return false;   // woken by touch — resume normal operation
+    }
+
+    // Timer wakeup: yield briefly so the touch_task can poll GT911 and
+    // set the shared flag if a touch occurred during sleep.
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    if (paper_s3_touch_wakeup) {
+      LOG_I("Light sleep: touch_task detected a touch.");
+      epd_poweron();
+      paper_s3_touch_wakeup = false;
+      return false;   // woken by touch
+    }
+
+    // Fast-path: GT911 INT still asserted after the yield.
+    if (gpio_get_level(gpio_num) == level) {
+      LOG_I("Light sleep: GT911 INT asserted on GPIO%d.", (int)gpio_num);
+      epd_poweron();
+      paper_s3_touch_wakeup = false;
+      return false;   // woken by touch
+    }
+  }
+
+  // Reached here: sleep period expired without any touch.
+  LOG_I("Light sleep: timed out after %u min.", minutes_to_sleep);
+  // Do NOT call epd_poweron() here — deep sleep follows immediately.
+  return true;  // timed out
 }
 
 void InkPlatePlatform::deep_sleep(gpio_num_t gpio_num, int level)
 {
-LOG_I("Paper S3: Performing full hardware power down.");
+  static constexpr char const * TAG = "InkPlatePlatform";
+  (void)gpio_num;
+  (void)level;
 
-  // 1. Disable all wakeup sources to ensure it doesn't wake up on its own
+  LOG_I("Paper S3: entering deep sleep. Press the side button to restart.");
+
+  // 1. Power off the EPD high-voltage supply to minimise current draw.
+  //    The e-ink image is bistable; it persists without power.
+  epd_poweroff();
+
+  // 2. Cancel any pending BM8563 alarm/timer so the PMS150G power-management
+  //    micro does not automatically restart the device after a countdown.
+  //    With no alarm pending, only pressing the physical side button can
+  //    trigger the PMS150G to power-cycle (restart) the system.
+  bm8563.cancel_alarm();
+
+  // 3. Disable all ESP32 software wakeup sources.
+  //    The device can only be restarted by the hardware side button, which
+  //    causes the PMS150G to perform a full power cycle of the board.
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
 
-  // 2. Shut down the E-Ink display power rails specifically
-  // The EPD is on GPIO 45 (PWR), but pulling the main PMS (GPIO 5) 
-  // will kill power to the whole board.
-  
-  // 3. Configure GPIO 5 (PMS) for RTC control so it stays LOW during sleep
-  if (rtc_gpio_is_valid_gpio(GPIO_NUM_5)) {
-    rtc_gpio_init(GPIO_NUM_5);
-    rtc_gpio_set_direction(GPIO_NUM_5, RTC_GPIO_MODE_OUTPUT_ONLY);
-    rtc_gpio_set_level(GPIO_NUM_5, 0); // Pull LOW to cut main power
-  }
-
-  // 4. Isolate other pins to prevent back-powering peripherals via internal pull-ups
-  // This is especially important for the GT911 (G41/G42) and SD Card (G47/G39/G38/G40)
-  rtc_gpio_isolate(GPIO_NUM_7);  // Touch INT
-  rtc_gpio_isolate(GPIO_NUM_41); // I2C SDA
-  rtc_gpio_isolate(GPIO_NUM_42); // I2C SCL
-
-  // 5. Enter Deep Sleep
-  // With no wakeup sources and GPIO 5 held LOW, the device is effectively OFF.
-  esp_deep_sleep_start();
+  // 4. Enter ESP32 deep sleep.
+  //    ESP32-S3 RTC controller draws ~8 µA.
+  //    The PMS150G + BM8563 remain active with < 1 µA combined.
+  esp_deep_sleep_start();  // never returns
 }
 
 sdmmc_card_t* InkPlatePlatform::get_sd_card() {

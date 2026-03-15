@@ -13,6 +13,14 @@
 #include "battery.hpp"
 #include "screen.hpp"
 #include "bm8563.hpp"
+#include "inkplate_platform.hpp"
+#include "models/config.hpp"
+#include "viewers/msg_viewer.hpp"
+#include "esp.hpp"
+
+// Shared flag: set true by touch_task, read by InkPlatePlatform::light_sleep()
+// to decide whether to exit the sleep loop.
+extern volatile bool paper_s3_touch_wakeup;
 
 #if EPUB_INKPLATE_BUILD
   #include "freertos/FreeRTOS.h"
@@ -199,6 +207,7 @@ static void touch_task(void * param)
           EventMgr::Event ev;
           ev.kind = EventMgr::EventKind::HOLD;
           ev.x = start_x; ev.y = start_y;
+          paper_s3_touch_wakeup = true; // wake light_sleep() poll loop
           if (input_event_queue) xQueueSend(input_event_queue, &ev, 0);
           hold_sent = true;
         }
@@ -224,6 +233,7 @@ static void touch_task(void * param)
       }
 
       if (ev.kind != EventMgr::EventKind::NONE && input_event_queue) {
+        paper_s3_touch_wakeup = true; // wake light_sleep() poll loop
         xQueueSend(input_event_queue, &ev, 0);
       }
     }
@@ -281,10 +291,39 @@ void EventMgr::loop()
 {
 #if EPUB_INKPLATE_BUILD
   while (true) {
-    const Event & event = get_event();
+    const Event & event = get_event(); // blocks up to 15 s
+
     if (event.kind != EventKind::NONE) {
       app_controller.input_event(event);
       return;
+    }
+
+    // get_event() timed out (no user input for 15 s). Enter light sleep
+    // unless something has requested we stay awake (e.g. WiFi active).
+    if (!stay_on) {
+      int8_t timeout_minutes = 15; // safe default
+      config.get(Config::Ident::TIMEOUT, &timeout_minutes);
+
+      LOG_I("No input for 15 s. Light sleep for %d min...", (int)timeout_minutes);
+      ESP::delay(500); // brief settle before CPU halts
+
+      if (inkplate_platform.light_sleep((uint32_t)timeout_minutes,
+                                        GPIO_NUM_48, 0)) {
+        // light_sleep() returned true: the full timeout elapsed without
+        // a touch. Proceed to deep sleep.
+        app_controller.going_to_deep_sleep();
+        screen.force_full_update();
+        msg_viewer.show(
+          MsgViewer::MsgType::INFO, false, true,
+          "Deep Sleep",
+          "No activity for %d minutes. The device is entering deep sleep.\n"
+          "Press the side button to restart.",
+          (int)timeout_minutes);
+        ESP::delay(1000);
+        inkplate_platform.deep_sleep(); // never returns
+      }
+      // light_sleep() returned false: a touch woke the device.
+      // Loop back to get_event() which will pick up the queued touch event.
     }
   }
 #endif
@@ -293,12 +332,14 @@ void EventMgr::loop()
 const EventMgr::Event & EventMgr::get_event()
 {
   static Event event;
-  event.kind = EventKind::NONE; 
+  event.kind = EventKind::NONE;
 
 #if EPUB_INKPLATE_BUILD
   if (input_event_queue != nullptr) {
-    if (!xQueueReceive(input_event_queue, &event, portMAX_DELAY)) {
-      event.kind = EventKind::NONE;
+    // Wait up to 15 seconds for an event.  If nothing arrives the caller
+    // (loop()) will invoke the light-sleep / deep-sleep sequence.
+    if (!xQueueReceive(input_event_queue, &event, pdMS_TO_TICKS(15000))) {
+      event.kind = EventKind::NONE; // timeout — no event
     }
   }
 #endif

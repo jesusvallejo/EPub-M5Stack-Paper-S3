@@ -19,7 +19,7 @@ class NVSMgr
       int32_t  offset;
       int16_t  itemref_index;
       uint8_t  was_shown;
-      uint8_t  filler1;
+      uint8_t  read_status;  ///< 0 = unread/in-progress, 1 = completed (was filler1)
     };
     #pragma pack(pop)
 

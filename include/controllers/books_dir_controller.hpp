@@ -28,8 +28,20 @@ class BooksDirController
     BooksDirViewer * books_dir_viewer;
     int8_t viewer_id;
 
+    // ---- Context-menu state (touch devices) ----
+    enum class ContextAction { NONE, DELETE, MARK_COMPLETE, RELOAD_META };
+    ContextAction context_action;
+    bool          book_context_menu_shown;
+    int16_t       context_book_index;
+
+    void refresh_view();   ///< Re-display the book list in place.
+
   public:
-    BooksDirController() {};
+    BooksDirController() :
+      context_action(ContextAction::NONE),
+      book_context_menu_shown(false),
+      context_book_index(-1)
+    {};
     void setup();
     void input_event(const EventMgr::Event & event);
     void enter();
@@ -40,6 +52,13 @@ class BooksDirController
 
     inline int16_t get_current_book_index() { return current_book_index; }
     inline void    set_current_book_index(int16_t idx) { current_book_index = idx; }
+    inline int16_t get_context_book_index() { return context_book_index; }
+
+    // Called by static context-menu action functions:
+    void clear_context_menu();         ///< Cancel: close menu, return to book list.
+    void show_delete_confirm();        ///< Show delete confirmation dialog.
+    void show_mark_complete_confirm(); ///< Show mark-as-read confirmation dialog.
+    void show_reload_meta_confirm();   ///< Show reload-metadata confirmation dialog.
 };
 
 #if __BOOKS_DIR_CONTROLLER__

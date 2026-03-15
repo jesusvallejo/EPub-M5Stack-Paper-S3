@@ -159,6 +159,40 @@ class BooksDir
     bool read_books_directory(char * book_filename, int16_t & book_index);
 
     /**
+     * @brief Delete a book: removes the epub file and DB entry.
+     *
+     * @param sorted_idx  The sorted-list index of the book to delete.
+     * @return true   Deletion succeeded (file removed and DB compacted).
+     * @return false  Invalid index or I/O error.
+     */
+    bool delete_book(uint16_t sorted_idx);
+
+    /**
+     * @brief Force a metadata/cover reload for a single book.
+     *
+     * Drops the book's DB entry so that the next refresh() re-scans the
+     * epub file and stores fresh metadata.
+     *
+     * @param sorted_idx  The sorted-list index of the book to reload.
+     * @return true   Reload triggered successfully.
+     * @return false  Invalid index or I/O error.
+     */
+    bool reload_book_metadata(uint16_t sorted_idx);
+
+    /**
+     * @brief Set the read_status flag for a book in NVS.
+     *
+     * Stores the flag in the NVS entry alongside the reading position.
+     * No DB rebuild needed — safe to call at any time.
+     *
+     * @param sorted_idx  The sorted-list index of the book.
+     * @param status      0 = unread/in-progress, 1 = completed.
+     * @return true   Write succeeded.
+     * @return false  Invalid index or I/O error.
+     */
+    bool set_read_status(uint16_t sorted_idx, uint8_t status);
+
+    /**
      * @brief Refresh the database
      * 
      * This method is called by the *read_books_directory()* method to refresh the database. It can also
