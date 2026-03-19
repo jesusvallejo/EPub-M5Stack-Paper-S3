@@ -313,12 +313,14 @@ void EventMgr::loop()
         // a touch. Proceed to deep sleep.
         app_controller.going_to_deep_sleep();
         screen.force_full_update();
-        msg_viewer.show(
-          MsgViewer::MsgType::INFO, false, true,
-          "Deep Sleep",
-          "No activity for %d minutes. The device is entering deep sleep.\n"
-          "Press the side button to restart.",
-          (int)timeout_minutes);
+        if (!app_controller.show_sleep_book_cover()) {
+          msg_viewer.show(
+            MsgViewer::MsgType::INFO, false, true,
+            "Deep Sleep",
+            "No activity for %d minutes. The device is entering deep sleep.\n"
+            "Press the side button to restart.",
+            (int)timeout_minutes);
+        }
         ESP::delay(1000);
         inkplate_platform.deep_sleep(); // never returns
       }

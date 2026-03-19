@@ -27,17 +27,19 @@
 
 #if INKPLATE_6PLUS || TOUCH_TRIAL
 
-static void context_cancel()              { books_dir_controller.clear_context_menu();         }
-static void context_delete_confirm()      { books_dir_controller.show_delete_confirm();         }
+static void context_cancel()              { books_dir_controller.clear_context_menu();          }
+static void context_delete_confirm()      { books_dir_controller.show_delete_confirm();          }
 static void context_mark_complete_confirm() { books_dir_controller.show_mark_complete_confirm(); }
-static void context_reload_meta_confirm() { books_dir_controller.show_reload_meta_confirm();    }
+static void context_reload_meta_confirm() { books_dir_controller.show_reload_meta_confirm();     }
+static void context_extract_cover()       { books_dir_controller.show_extract_cover_confirm();   }
 
 static MenuViewer::MenuEntry context_menu[] = {
-  { MenuViewer::Icon::RETURN,      "Cancel",  context_cancel,               false, true  },  // hidden, tap-outside closes menu
-  { MenuViewer::Icon::DELETE,      "Delete",  context_delete_confirm,       true,  true  },
-  { MenuViewer::Icon::CLR_HISTORY, "Mark Read",context_mark_complete_confirm,true, true  },
-  { MenuViewer::Icon::REFRESH,     "Reload",  context_reload_meta_confirm,  true,  true  },
-  { MenuViewer::Icon::END_MENU,    nullptr,   nullptr,                       false, false }
+  { MenuViewer::Icon::RETURN,      "Cancel",       context_cancel,               false, true  },  // hidden, tap-outside closes menu
+  { MenuViewer::Icon::DELETE,      "Delete",       context_delete_confirm,       true,  true  },
+  { MenuViewer::Icon::CLR_HISTORY, "Mark Read",    context_mark_complete_confirm,true,  true  },
+  { MenuViewer::Icon::REFRESH,     "Reload",       context_reload_meta_confirm,  true,  true  },
+  { MenuViewer::Icon::BOOK,        "Sleep Cover",  context_extract_cover,        true,  true  },
+  { MenuViewer::Icon::END_MENU,    nullptr,         nullptr,                      false, false }
 };
 
 #endif // INKPLATE_6PLUS || TOUCH_TRIAL
@@ -116,6 +118,23 @@ BooksDirController::show_reload_meta_confirm()
     true, true,
     "Reload Metadata",
     "Reload cover and metadata for \"%s\"?",
+    title);
+}
+
+void
+BooksDirController::show_extract_cover_confirm()
+{
+  book_context_menu_shown = false;
+  context_action          = ContextAction::EXTRACT_COVER;
+
+  const BooksDir::EBookRecord * book = books_dir.get_book_data(context_book_index);
+  const char * title = (book != nullptr) ? book->title : "this book";
+
+  msg_viewer.show(
+    MsgViewer::MsgType::CONFIRM,
+    true, true,
+    "Set Sleep Cover",
+    "Extract and save the cover of \"%s\" as the sleep display image?",
     title);
 }
 
@@ -353,6 +372,18 @@ BooksDirController::leave(bool going_to_deep_sleep)
             case ContextAction::RELOAD_META:
               books_dir.reload_book_metadata(context_book_index);
               current_book_index = 0; // index may shift after rescan
+              break;
+            case ContextAction::EXTRACT_COVER:
+              if (books_dir.save_cover_to_images(context_book_index)) {
+                msg_viewer.show(MsgViewer::MsgType::INFO, false, false,
+                  "Sleep Cover Saved",
+                  "The cover has been saved and will be shown on the next sleep screen.");
+              } else {
+                msg_viewer.show(MsgViewer::MsgType::INFO, false, false,
+                  "Sleep Cover",
+                  "Unable to extract cover. The book may have no cover image.");
+              }
+              current_book_index = context_book_index;
               break;
             default:
               break;

@@ -64,8 +64,10 @@ CommonActions::power_it_off()
   app_controller.going_to_deep_sleep();
   #if EPUB_INKPLATE_BUILD
     screen.force_full_update();
-    msg_viewer.show(MsgViewer::MsgType::INFO, false, true, "Power OFF",
-      "Entering Deep Sleep mode. " MSG);
+    if (!app_controller.show_sleep_book_cover()) {
+      msg_viewer.show(MsgViewer::MsgType::INFO, false, true, "Power OFF",
+        "Entering Deep Sleep mode. " MSG);
+    }
     ESP::delay(1000);
     inkplate_platform.deep_sleep(INT_PIN, LEVEL);
   #else

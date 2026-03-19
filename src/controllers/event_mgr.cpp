@@ -332,13 +332,15 @@
             
             LOG_D("Timed out on Light Sleep. Going now to Deep Sleep");
             screen.force_full_update();
-            msg_viewer.show(
-              MsgViewer::MsgType::INFO, 
-              false, true, 
-              "Deep Sleep", 
-              "Timeout period exceeded (%d minutes). The device is now "
-              "entering into Deep Sleep mode. Please press a key to restart.",
-              light_sleep_duration);
+            if (!app_controller.show_sleep_book_cover()) {
+              msg_viewer.show(
+                MsgViewer::MsgType::INFO, 
+                false, true, 
+                "Deep Sleep", 
+                "Timeout period exceeded (%d minutes). The device is now "
+                "entering into Deep Sleep mode. Please press a key to restart.",
+                light_sleep_duration);
+            }
             ESP::delay(1000);
             inkplate_platform.deep_sleep(INT_PIN, 1);
           }

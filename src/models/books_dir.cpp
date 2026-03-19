@@ -448,6 +448,9 @@ BooksDir::refresh(char * book_filename, int16_t & book_index, bool force_init)
 
   LOG_D("Refreshing database content");
 
+  // Ensure the images directory exists (used for sleep-display covers).
+  mkdir(IMAGES_FOLDER, 0755); // harmless if the directory already exists
+
   EBookRecord   * the_book = nullptr;
   struct dirent * de       = nullptr;
   DIR           * dp       = nullptr;
@@ -704,6 +707,28 @@ BooksDir::refresh(char * book_filename, int16_t & book_index, bool force_init)
               else {
                 LOG_D("Image: width: %d height: %d", img->get_dim().width, img->get_dim().height);
 
+                // --- Save full-resolution decoded cover for sleep display ---
+                {
+                  const uint16_t iw = (uint16_t) img->get_dim().width;
+                  const uint16_t ih = (uint16_t) img->get_dim().height;
+                  char cover_path[64];
+                  snprintf(cover_path, sizeof(cover_path),
+                           IMAGES_FOLDER "/%08lx.raw", (unsigned long) the_book->id);
+                  FILE * cf = fopen(cover_path, "wb");
+                  if (cf != nullptr) {
+                    const uint8_t magic[4] = { 'C', 'O', 'V', 'R' };
+                    fwrite(magic,             1, 4,                  cf);
+                    fwrite(&iw,               2, 1,                  cf);
+                    fwrite(&ih,               2, 1,                  cf);
+                    fwrite(img->get_bitmap(), 1, (uint32_t)iw * ih,  cf);
+                    fclose(cf);
+                    LOG_D("Saved sleep cover: %s (%dx%d)", cover_path, iw, ih);
+                  } else {
+                    LOG_E("Failed to write sleep cover: %s", cover_path);
+                  }
+                }
+                // --- End save sleep cover ---
+
                 int32_t w = max_cover_width;
                 int32_t h = img->get_dim().height * max_cover_width / img->get_dim().width;
 
@@ -788,6 +813,140 @@ error_clear:
   if (the_book) free(the_book);
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Save one book's full-resolution cover to IMAGES_FOLDER
+// ---------------------------------------------------------------------------
+
+bool
+BooksDir::save_cover_to_images(uint16_t sorted_idx)
+{
+  if (sorted_idx >= sorted_index.size()) {
+    LOG_E("save_cover_to_images: idx %d out of range", sorted_idx);
+    return false;
+  }
+
+  // Find db_index and id for this sorted position.
+  int i = 0; int16_t db_index = -1; uint32_t book_id = 0;
+  for (const auto & entry : sorted_index) {
+    if (i == (int)sorted_idx) { db_index = (int16_t)entry.second.db_index; book_id = entry.second.id; break; }
+    i++;
+  }
+  if (db_index == -1) return false;
+
+  // Read the DB record to get the filename.
+  db.set_current_idx(db_index);
+  EBookRecord * rec = (EBookRecord *) allocate(sizeof(EBookRecord));
+  if (rec == nullptr) return false;
+  if (!db.get_record(rec, sizeof(EBookRecord))) { free(rec); return false; }
+
+  std::string fullpath = BOOKS_FOLDER "/";
+  fullpath += rec->filename;
+  free(rec);
+
+  // Open the epub and decode the full-resolution cover.
+  if (!epub.open_file(fullpath)) return false;
+
+  const char * cover_str = epub.get_cover_filename();
+  if (!cover_str || cover_str[0] == '\0') { epub.close_file(); return false; }
+  std::string cover_fn = cover_str;
+
+  Image * img = epub.get_image(cover_fn, true);
+  epub.close_file();
+
+  if (img == nullptr) return false;
+
+  const uint16_t iw = (uint16_t)img->get_dim().width;
+  const uint16_t ih = (uint16_t)img->get_dim().height;
+
+  if (iw == 0 || ih == 0) { delete img; return false; }
+
+  mkdir(IMAGES_FOLDER, 0755); // ensure directory exists
+
+  char cover_path[72];
+  snprintf(cover_path, sizeof(cover_path), IMAGES_FOLDER "/%08lx.raw", (unsigned long)book_id);
+  FILE * cf = fopen(cover_path, "wb");
+  bool ok = false;
+  if (cf != nullptr) {
+    const uint8_t magic[4] = { 'C', 'O', 'V', 'R' };
+    fwrite(magic,             1, 4,                 cf);
+    fwrite(&iw,               2, 1,                 cf);
+    fwrite(&ih,               2, 1,                 cf);
+    fwrite(img->get_bitmap(), 1, (uint32_t)iw * ih, cf);
+    fclose(cf);
+    ok = true;
+    LOG_I("Saved sleep cover for book_id %08lx: %dx%d", (unsigned long)book_id, iw, ih);
+  } else {
+    LOG_E("save_cover_to_images: cannot write %s", cover_path);
+  }
+  delete img;
+  return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Sleep-display cover selection
+// ---------------------------------------------------------------------------
+
+std::string
+BooksDir::get_sleep_cover_path() const
+{
+  // Helper: return the full path if the .raw file actually exists, else "".
+  auto raw_path_if_exists = [](uint32_t id) -> std::string {
+    char p[72];
+    snprintf(p, sizeof(p), IMAGES_FOLDER "/%08lx.raw", (unsigned long) id);
+    struct stat st;
+    return (stat(p, &st) == 0) ? std::string(p) : std::string();
+  };
+
+  uint32_t reading_id = 0;  ///< best in-progress book that also has a .raw file
+
+#if EPUB_INKPLATE_BUILD
+  {
+    // Priority 1: the book most recently opened and not yet completed.
+    uint32_t        last_id  = 0;
+    NVSMgr::NVSData last_nvs = {};
+    if (nvs_mgr.get_last(last_id, last_nvs)
+        && last_nvs.read_status == 0
+        && (last_nvs.was_shown != 0 || last_nvs.offset != 0
+            || last_nvs.itemref_index != 0)
+        && !raw_path_if_exists(last_id).empty()) {
+      reading_id = last_id;
+    }
+
+    // Priority 2: any in-progress book that has a .raw file.
+    if (reading_id == 0) {
+      for (const auto & entry : sorted_index) {
+        NVSMgr::NVSData nd = {};
+        if (nvs_mgr.get_location(entry.second.id, nd)
+            && nd.read_status == 0
+            && (nd.was_shown != 0 || nd.offset != 0 || nd.itemref_index != 0)
+            && !raw_path_if_exists(entry.second.id).empty()) {
+          reading_id = entry.second.id;
+          break;
+        }
+      }
+    }
+  }
+#endif
+
+  if (reading_id != 0) return raw_path_if_exists(reading_id);
+
+  // Priority 3: any book that has a .raw file (random pick from those that do).
+  // First, build list of IDs that have a .raw file.
+  std::vector<uint32_t> available;
+  for (const auto & entry : sorted_index) {
+    if (!raw_path_if_exists(entry.second.id).empty()) {
+      available.push_back(entry.second.id);
+    }
+  }
+
+  if (available.empty()) return "";
+
+  uint32_t chosen = available[(available.size() > 1) ? (rand() % available.size()) : 0];
+  return raw_path_if_exists(chosen);
+}
+
+// ---------------------------------------------------------------------------
 
 void
 BooksDir::show_db()

@@ -193,6 +193,34 @@ class BooksDir
     bool set_read_status(uint16_t sorted_idx, uint8_t status);
 
     /**
+     * @brief Extract and save the cover of a single book to IMAGES_FOLDER.
+     *
+     * Opens the epub, decodes the full-resolution cover and writes it as a
+     * raw grayscale file (header: "COVR" + uint16 w + uint16 h + pixels).
+     * Overwrites any previously saved cover for the same book.
+     *
+     * @param sorted_idx  The sorted-list index of the book.
+     * @return true   Cover saved successfully.
+     * @return false  Book not found, no cover, or I/O error.
+     */
+    bool save_cover_to_images(uint16_t sorted_idx);
+
+    /**
+     * @brief Get the file path of the best book cover to show on the sleep display.
+     *
+     * Looks for a book currently being read (reading position saved in NVS,
+     * read_status == 0 / not completed). If one is found, that cover is
+     * returned; otherwise a random cover from the library is chosen.
+     *
+     * The cover files are the raw grayscale bitmaps (magic "COVR" + uint16
+     * width + uint16 height + pixels) saved to IMAGES_FOLDER during import.
+     *
+     * @return std::string  Full SD-card path to the .raw file, or "" if
+     *                      no suitable file exists.
+     */
+    std::string get_sleep_cover_path() const;
+
+    /**
      * @brief Refresh the database
      * 
      * This method is called by the *read_books_directory()* method to refresh the database. It can also

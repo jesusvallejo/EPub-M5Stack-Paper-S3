@@ -79,6 +79,19 @@ class AppController
     void going_to_deep_sleep();
     void launch();
 
+    /**
+     * @brief Display a book cover as the sleep screen image.
+     *
+     * Reads the best candidate cover from IMAGES_FOLDER (prioritising the
+     * book currently in reading status), draws it centred on screen and
+     * triggers a full EPD update so the image is visible after deep sleep.
+     *
+     * @return true   A cover was found and displayed.
+     * @return false  No cover file available; caller should fall back to
+     *                the standard deep-sleep message.
+     */
+    bool show_sleep_book_cover();
+
   private:
     static constexpr char const * TAG = "AppController";
 

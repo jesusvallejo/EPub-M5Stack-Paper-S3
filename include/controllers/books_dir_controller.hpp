@@ -29,7 +29,7 @@ class BooksDirController
     int8_t viewer_id;
 
     // ---- Context-menu state (touch devices) ----
-    enum class ContextAction { NONE, DELETE, MARK_COMPLETE, RELOAD_META };
+    enum class ContextAction { NONE, DELETE, MARK_COMPLETE, RELOAD_META, EXTRACT_COVER };
     ContextAction context_action;
     bool          book_context_menu_shown;
     int16_t       context_book_index;
@@ -55,10 +55,11 @@ class BooksDirController
     inline int16_t get_context_book_index() { return context_book_index; }
 
     // Called by static context-menu action functions:
-    void clear_context_menu();         ///< Cancel: close menu, return to book list.
-    void show_delete_confirm();        ///< Show delete confirmation dialog.
-    void show_mark_complete_confirm(); ///< Show mark-as-read confirmation dialog.
-    void show_reload_meta_confirm();   ///< Show reload-metadata confirmation dialog.
+    void clear_context_menu();            ///< Cancel: close menu, return to book list.
+    void show_delete_confirm();           ///< Show delete confirmation dialog.
+    void show_mark_complete_confirm();    ///< Show mark-as-read confirmation dialog.
+    void show_reload_meta_confirm();      ///< Show reload-metadata confirmation dialog.
+    void show_extract_cover_confirm();    ///< Show extract-cover confirmation dialog.
 };
 
 #if __BOOKS_DIR_CONTROLLER__
